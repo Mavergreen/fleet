@@ -42,6 +42,7 @@ func commands() []Command {
 	return []Command{
 		{Name: "attention", Run: runAttention},
 		{Name: "remediate", Run: runRemediate},
+		{Name: "timing", Run: runTiming},
 	}
 }
 
