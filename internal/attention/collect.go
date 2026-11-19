@@ -18,14 +18,14 @@ import (
 // Implementations must be safe for concurrent use: Collect calls them from one
 // goroutine per repo.
 type Retry interface {
-	Retryable(ctx context.Context, pr PR) (bool, error)
+	Retryable(ctx context.Context, pr PR) (pattern string, ok bool, err error)
 	InProgress(ctx context.Context, repo string) ([]model.Finding, error)
 }
 
 // NoRetry is the no-op Retry: nothing is retryable, nothing in progress.
 type NoRetry struct{}
 
-func (NoRetry) Retryable(context.Context, PR) (bool, error)                 { return false, nil }
+func (NoRetry) Retryable(context.Context, PR) (string, bool, error)         { return "", false, nil }
 func (NoRetry) InProgress(context.Context, string) ([]model.Finding, error) { return nil, nil }
 
 type user struct {
@@ -88,6 +88,7 @@ type repoCollector struct {
 	r          Retry
 	now        time.Time
 	res        repoResult
+	retrying   map[string]bool // PR items with a retry finding from r
 }
 
 func (rc *repoCollector) unread(path string, err error) {
@@ -108,14 +109,22 @@ func (rc *repoCollector) unreadErr(what string, err error) {
 
 func collectRepo(ctx context.Context, c ghapi.Client, org, repo, maintainer string, r Retry, now time.Time) repoResult {
 	rc := &repoCollector{ctx: ctx, c: c, org: org, repo: repo, maintainer: maintainer, r: r, now: now}
+	// Retries fleet already requested come first: such a PR is reported by
+	// its retry finding, not again by its red or green age.
+	progress, err := r.InProgress(ctx, repo)
+	if err != nil {
+		rc.unread("retry markers for "+repo, err)
+	}
+	rc.retrying = map[string]bool{}
+	for _, f := range progress {
+		if f.Kind == model.KindRetryInProgress || f.Kind == model.KindStuckPR {
+			rc.retrying[f.Item] = true
+		}
+	}
 	rc.pulls()
 	rc.issues()
 	rc.workflows()
-	if fs, err := r.InProgress(ctx, repo); err != nil {
-		rc.unread("retry markers for "+repo, err)
-	} else {
-		rc.res.findings = append(rc.res.findings, fs...)
-	}
+	rc.res.findings = append(rc.res.findings, progress...)
 	return rc.res
 }
 
@@ -131,19 +140,24 @@ func (rc *repoCollector) pulls() {
 	for _, p := range pulls {
 		pr := PR{Repo: rc.repo, Number: p.Number, Author: p.User.Login, HeadRef: p.Head.Ref,
 			URL: p.HTMLURL, Body: p.Body, CreatedAt: p.CreatedAt}
+		if rc.retrying[item(rc.repo, pr.Number)] {
+			continue // its retry finding speaks for it
+		}
 		cs, settled, err := HeadChecks(rc.ctx, rc.c, rc.org, rc.repo, p.Head.SHA, p.CreatedAt)
 		if err != nil {
 			rc.unreadErr("checks for "+item(rc.repo, p.Number), err)
 			continue
 		}
 		pr.Checks, pr.Settled = cs, settled
-		retryable := false
-		if pr.Checks.State == "red" {
-			ok, err := rc.r.Retryable(rc.ctx, pr)
+		// The verdict only matters once red is old enough to be stuck.
+		if pr.Checks.State == "red" && !pr.Checks.NeedsApproval && rc.now.Sub(pr.Checks.Since) > stuckAfter {
+			pattern, ok, err := rc.r.Retryable(rc.ctx, pr)
 			if err != nil {
+				// Unknown is not "not retryable": report only what failed.
 				rc.unread(fmt.Sprintf("retryable check for %s#%d", rc.repo, pr.Number), err)
+				continue
 			}
-			retryable = ok && err == nil
+			pr.Retryable, pr.RetryPattern = ok, pattern
 		}
 		if pr.Checks.State == "green" && rc.now.Sub(pr.Checks.Since) > stuckAfter {
 			// mergeable is only worth a call when it could appear in a finding
@@ -157,7 +171,7 @@ func (rc *repoCollector) pulls() {
 				pr.Mergeable = full.Mergeable
 			}
 		}
-		if f, ok := ClassifyPR(pr, retryable, rc.now); ok {
+		if f, ok := ClassifyPR(pr, rc.now); ok {
 			rc.res.findings = append(rc.res.findings, f)
 		}
 	}

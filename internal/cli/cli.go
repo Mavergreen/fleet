@@ -141,7 +141,10 @@ func runAttention(ctx context.Context, e Env, _ []string, asJSON bool) int {
 		return 1
 	}
 	now := e.Now()
-	fs, checked, err := attention.Collect(ctx, c, org, "", retry.NewAttention(c, org, scripts(e), now), now)
+	// One memo for the invocation: Collect and remediate's planning read
+	// many of the same endpoints.
+	m := ghapi.NewMemo(c)
+	fs, checked, err := attention.Collect(ctx, m, org, "", retry.NewAttention(m, org, scripts(e), now), now)
 	if err != nil {
 		fmt.Fprintf(e.Stderr, "mavergreen-fleet: %v\n", err)
 		return 1
@@ -172,19 +175,17 @@ func runRemediate(ctx context.Context, e Env, args []string, asJSON bool) int {
 		return 1
 	}
 	now := e.Now()
-	actions, err := retry.Plan(ctx, c, org, scripts(e), now)
+	results, repos, err := retry.Remediate(ctx, c, org, scripts(e), now, dry)
 	if err != nil {
 		fmt.Fprintf(e.Stderr, "mavergreen-fleet: %v\n", err)
 		return 1
 	}
-	results := make([]retry.Result, len(actions))
-	for i, a := range actions {
-		results[i] = retry.Apply(ctx, c, a, dry)
-	}
-	if err := printRemediate(e.Stdout, results, dry, asJSON, now); err != nil {
+	if err := printRemediate(e.Stdout, results, repos, dry, asJSON, now); err != nil {
 		fmt.Fprintf(e.Stderr, "mavergreen-fleet: %v\n", err)
 		return 1
 	}
+	// Result.Err is a failed write, or a read Apply needed before writing:
+	// exit 1. A Plan-time cannot-read is a report (Action.Error), exit 0.
 	for _, r := range results {
 		if r.Err != nil {
 			return 1
@@ -208,7 +209,7 @@ type remediateRow struct {
 }
 
 // printRemediate writes one line per result: <repo> <PR #n | run id>  <kind>  <note>.
-func printRemediate(w io.Writer, results []retry.Result, dry, asJSON bool, now time.Time) error {
+func printRemediate(w io.Writer, results []retry.Result, repos int, dry, asJSON bool, now time.Time) error {
 	if asJSON {
 		rows := []remediateRow{}
 		for _, r := range results {
@@ -228,7 +229,7 @@ func printRemediate(w io.Writer, results []retry.Result, dry, asJSON bool, now t
 		}{rows}, now)
 	}
 	if len(results) == 0 {
-		_, err := fmt.Fprintln(w, "nothing to remediate: no red open PRs or latest main/scheduled runs")
+		_, err := fmt.Fprintf(w, "nothing to remediate across %d repos\n", repos)
 		return err
 	}
 	for _, r := range results {

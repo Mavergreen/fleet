@@ -74,7 +74,7 @@ func TestPrintRemediate(t *testing.T) {
 		{Action: retry.Action{Kind: retry.KindTickBox, Repo: "go", PR: 5}, Note: "comment posted but tick failed", Err: errors.New("HTTP 422")},
 	}
 	var b bytes.Buffer
-	if err := printRemediate(&b, rs, true, false, time.Time{}); err != nil {
+	if err := printRemediate(&b, rs, 1, true, false, time.Time{}); err != nil {
 		t.Fatal(err)
 	}
 	want := "rust PR #43  tick-box  retry 1/2, pattern runner-lost (dry run)\n" +
@@ -84,7 +84,7 @@ func TestPrintRemediate(t *testing.T) {
 		t.Fatalf("got\n%s", b.String())
 	}
 	b.Reset()
-	if err := printRemediate(&b, rs, false, true, time.Date(2026, 11, 19, 0, 0, 0, 0, time.UTC)); err != nil {
+	if err := printRemediate(&b, rs, 1, false, true, time.Date(2026, 11, 19, 0, 0, 0, 0, time.UTC)); err != nil {
 		t.Fatal(err)
 	}
 	var env struct {
@@ -100,7 +100,7 @@ func TestPrintRemediate(t *testing.T) {
 		t.Fatalf("%v %s", err, b.String())
 	}
 	b.Reset()
-	printRemediate(&b, nil, false, true, time.Time{})
+	printRemediate(&b, nil, 0, false, true, time.Time{})
 	if !strings.Contains(b.String(), `"actions": []`) {
 		t.Fatalf("%s", b.String())
 	}
@@ -136,8 +136,32 @@ func TestRemediateJSONCarriesReadErrors(t *testing.T) {
 	}
 	// A plain report has no error field.
 	var b bytes.Buffer
-	printRemediate(&b, []retry.Result{{Action: retry.Action{Kind: retry.KindReport, Repo: "r", PR: 1}, Note: "fork PR: report-only"}}, false, true, time.Time{})
+	printRemediate(&b, []retry.Result{{Action: retry.Action{Kind: retry.KindReport, Repo: "r", PR: 1}, Note: "fork PR: report-only"}}, 1, false, true, time.Time{})
 	if strings.Contains(b.String(), `"error"`) {
 		t.Fatalf("%s", b.String())
+	}
+}
+
+// quiet serves /user and one repo with nothing open and no workflows.
+type quiet struct{ readOnly }
+
+func (quiet) GetPaged(_ context.Context, p string, each func(json.RawMessage) error) error {
+	if strings.HasPrefix(p, "/orgs/") {
+		return each(json.RawMessage(`{"name":"r"}`))
+	}
+	return nil
+}
+
+func TestRemediateNothingNamesWhatWasChecked(t *testing.T) {
+	useClient(t, quiet{readOnly{t}})
+	e, out, _ := testEnv()
+	e.Getenv = func(k string) string {
+		if k == "GH_TOKEN" {
+			return "tok"
+		}
+		return ""
+	}
+	if code := Run([]string{"remediate"}, e); code != 0 || out.String() != "nothing to remediate across 1 repos\n" {
+		t.Fatalf("code %d %q", code, out)
 	}
 }

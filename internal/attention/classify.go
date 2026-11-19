@@ -8,31 +8,31 @@ import (
 	"github.com/Mavergreen/fleet/internal/model"
 )
 
-const (
-	stuckAfter = 24 * time.Hour
-	retryAfter = time.Hour
-)
+const stuckAfter = 24 * time.Hour
 
 type CheckState struct {
 	State string // "green" | "red" | "pending"
 	Since time.Time
+	// NeedsApproval: red only because runs await approval (action_required).
+	NeedsApproval bool
 }
 
 type Status struct{ State, Description string }
 
 type PR struct {
-	Repo             string
-	Number           int
-	Author           string
-	HeadRef          string
-	URL              string
-	Body             string
-	CreatedAt        time.Time
-	Checks           CheckState
-	Mergeable        *bool
-	Settled          *Status
-	RetryRequestedAt *time.Time
-	RunStartedSince  bool
+	Repo      string
+	Number    int
+	Author    string
+	HeadRef   string
+	URL       string
+	Body      string
+	CreatedAt time.Time
+	Checks    CheckState
+	Mergeable *bool
+	Settled   *Status
+	// Retryable: remediate would retry the red head, with RetryPattern.
+	Retryable    bool
+	RetryPattern string
 }
 
 type Thread struct {
@@ -64,26 +64,31 @@ func age(d time.Duration) string {
 
 func item(repo string, n int) string { return fmt.Sprintf("%s#%d", repo, n) }
 
-// ClassifyPR reports at most one finding per PR.
-func ClassifyPR(pr PR, retryable bool, now time.Time) (model.Finding, bool) {
+// ClassifyPR reports at most one finding per PR. A retry fleet has already
+// requested is reported by the retry package instead (see Collect).
+func ClassifyPR(pr PR, now time.Time) (model.Finding, bool) {
+	retryable := pr.Retryable
 	f := model.Finding{Repo: pr.Repo, Item: item(pr.Repo, pr.Number), URL: pr.URL, Kind: model.KindStuckPR}
-
-	if pr.RetryRequestedAt != nil && !pr.RunStartedSince && now.Sub(*pr.RetryRequestedAt) > retryAfter {
-		f.Since = *pr.RetryRequestedAt
-		f.Why = fmt.Sprintf("retry requested %s ago, no run started", age(now.Sub(f.Since)))
-		f.Fix = "check Renovate picked up the retry"
-		return f, true
-	}
 
 	switch pr.Checks.State {
 	case "red":
 		d := now.Sub(pr.Checks.Since)
-		if d > stuckAfter && !retryable {
-			f.Since = pr.Checks.Since
+		if d <= stuckAfter {
+			break
+		}
+		f.Since = pr.Checks.Since
+		switch {
+		case pr.Checks.NeedsApproval:
+			f.Why = "red " + age(d) + ", waiting for someone to approve the workflow run"
+			f.Fix = "approve the workflow run"
+		case retryable:
+			f.Why = "red " + age(d) + ", retryable (" + pr.RetryPattern + ") — not yet retried"
+			f.Fix = "run mavergreen-fleet remediate"
+		default:
 			f.Why = "red " + age(d) + ", not retryable"
 			f.Fix = "diagnose the failure; declare a retryable deviation if it is a known flake"
-			return f, true
 		}
+		return f, true
 	case "green":
 		d := now.Sub(pr.Checks.Since)
 		if d > stuckAfter {

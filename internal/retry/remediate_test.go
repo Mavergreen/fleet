@@ -869,10 +869,10 @@ func TestAttentionRetryable(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if ok, err := r.Retryable(context.Background(), attention.PR{Repo: "r", Number: 43}); !ok || err != nil {
-				t.Errorf("43: %v %v", ok, err)
+			if pat, ok, err := r.Retryable(context.Background(), attention.PR{Repo: "r", Number: 43}); !ok || err != nil || pat != "runner-lost" {
+				t.Errorf("43: %q %v %v", pat, ok, err)
 			}
-			if ok, err := r.Retryable(context.Background(), attention.PR{Repo: "r", Number: 10}); ok || err != nil {
+			if _, ok, err := r.Retryable(context.Background(), attention.PR{Repo: "r", Number: 10}); ok || err != nil {
 				t.Errorf("10: %v %v", ok, err)
 			}
 		}()
@@ -884,7 +884,7 @@ func TestAttentionRetryableErrorsWhenUnreadable(t *testing.T) {
 	f := renovateWorld(t)
 	f.routes["/repos/o/r/contents/"+declaredPath] = &ghapi.HTTPError{Status: 500, Path: "contents"}
 	r := NewAttention(f, "o", t.TempDir(), now)
-	if _, err := r.Retryable(context.Background(), attention.PR{Repo: "r", Number: 43}); err == nil {
+	if _, _, err := r.Retryable(context.Background(), attention.PR{Repo: "r", Number: 43}); err == nil {
 		t.Fatal("an unreadable verdict must be an error, not 'not retryable'")
 	}
 }

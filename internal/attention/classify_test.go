@@ -15,7 +15,7 @@ func pr(state string, since time.Duration) PR {
 }
 
 func TestRedOver24hNotRetryableIsStuck(t *testing.T) {
-	f, ok := ClassifyPR(pr("red", 25*time.Hour), false, now)
+	f, ok := ClassifyPR(pr("red", 25*time.Hour), now)
 	if !ok || !strings.Contains(f.Why, "red 25h") || f.Fix == "" {
 		t.Fatalf("got %+v %v", f, ok)
 	}
@@ -25,29 +25,49 @@ func TestRedOver24hNotRetryableIsStuck(t *testing.T) {
 }
 
 func TestRedUnder24hIsNotStuck(t *testing.T) {
-	if _, ok := ClassifyPR(pr("red", 23*time.Hour), false, now); ok {
+	if _, ok := ClassifyPR(pr("red", 23*time.Hour), now); ok {
 		t.Fatal("unexpected finding")
 	}
 }
 
-func TestRedRetryableIsNotStuck(t *testing.T) {
-	if _, ok := ClassifyPR(pr("red", 25*time.Hour), true, now); ok {
-		t.Fatal("unexpected finding")
+// A retryable red PR nobody has retried is not stuck for good, but someone
+// has to run remediate.
+func TestRedRetryableNotYetRetriedIsStuck(t *testing.T) {
+	p := pr("red", 25*time.Hour)
+	p.Retryable, p.RetryPattern = true, "runner-lost"
+	f, ok := ClassifyPR(p, now)
+	if !ok || f.Kind != "stuck-pr" || f.Why != "red 25h, retryable (runner-lost) — not yet retried" ||
+		f.Fix != "run mavergreen-fleet remediate" || !f.Since.Equal(ago(25*time.Hour)) {
+		t.Fatalf("got %+v %v", f, ok)
+	}
+	p.Checks.Since = ago(23 * time.Hour)
+	if _, ok := ClassifyPR(p, now); ok {
+		t.Fatal("under 24h; not stuck")
+	}
+}
+
+// A run waiting for approval needs approving, not diagnosing.
+func TestRedAwaitingApprovalSaysApprove(t *testing.T) {
+	p := pr("red", 25*time.Hour)
+	p.Checks.NeedsApproval = true
+	f, ok := ClassifyPR(p, now)
+	if !ok || !strings.Contains(f.Why, "approve the workflow run") || f.Fix != "approve the workflow run" || strings.Contains(f.Fix, "diagnose") {
+		t.Fatalf("got %+v %v", f, ok)
 	}
 }
 
 func TestPendingIsNeverStuck(t *testing.T) {
-	if _, ok := ClassifyPR(pr("pending", 100*time.Hour), false, now); ok {
+	if _, ok := ClassifyPR(pr("pending", 100*time.Hour), now); ok {
 		t.Fatal("unexpected finding")
 	}
 }
 
 func TestGreenUnmergedOver24hIsStuck(t *testing.T) {
-	f, ok := ClassifyPR(pr("green", 25*time.Hour), false, now)
+	f, ok := ClassifyPR(pr("green", 25*time.Hour), now)
 	if !ok || !strings.Contains(f.Why, "green, unmerged 25h") || f.Fix == "" {
 		t.Fatalf("got %+v %v", f, ok)
 	}
-	if _, ok := ClassifyPR(pr("green", 23*time.Hour), false, now); ok {
+	if _, ok := ClassifyPR(pr("green", 23*time.Hour), now); ok {
 		t.Fatal("under 24h should not be stuck")
 	}
 }
@@ -55,7 +75,7 @@ func TestGreenUnmergedOver24hIsStuck(t *testing.T) {
 func TestGreenUnmergedSaysSettledPending(t *testing.T) {
 	p := pr("green", 25*time.Hour)
 	p.Settled = &Status{State: "pending", Description: "waiting on clang-22"}
-	f, _ := ClassifyPR(p, false, now)
+	f, _ := ClassifyPR(p, now)
 	if !strings.Contains(f.Why, "ingredients-settled pending: waiting on clang-22") {
 		t.Fatalf("why = %q", f.Why)
 	}
@@ -65,39 +85,9 @@ func TestGreenUnmergedSaysConflict(t *testing.T) {
 	p := pr("green", 25*time.Hour)
 	no := false
 	p.Mergeable = &no
-	f, _ := ClassifyPR(p, false, now)
+	f, _ := ClassifyPR(p, now)
 	if !strings.Contains(f.Why, "merge conflict") {
 		t.Fatalf("why = %q", f.Why)
-	}
-}
-
-func TestRetryRequestedNoRunWithin1hIsStuck(t *testing.T) {
-	p := pr("green", time.Hour)
-	r := ago(61 * time.Minute)
-	p.RetryRequestedAt = &r
-	f, ok := ClassifyPR(p, false, now)
-	if !ok || f.Fix == "" || !f.Since.Equal(r) || !strings.Contains(f.Why, "1h") {
-		t.Fatalf("got %+v %v", f, ok)
-	}
-	p.RunStartedSince = true
-	if _, ok := ClassifyPR(p, false, now); ok {
-		t.Fatal("run started; not stuck")
-	}
-	p.RunStartedSince = false
-	r2 := ago(59 * time.Minute)
-	p.RetryRequestedAt = &r2
-	if _, ok := ClassifyPR(p, false, now); ok {
-		t.Fatal("under 1h; not stuck")
-	}
-}
-
-func TestStaleRetryWinsOverGreenUnmerged(t *testing.T) {
-	p := pr("green", 30*time.Hour)
-	r := ago(2 * time.Hour)
-	p.RetryRequestedAt = &r
-	f, ok := ClassifyPR(p, false, now)
-	if !ok || !f.Since.Equal(r) {
-		t.Fatalf("got %+v", f)
 	}
 }
 

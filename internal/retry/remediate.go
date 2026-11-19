@@ -66,6 +66,9 @@ type Action struct {
 	Update  string  `json:"update,omitempty"`
 	HeadSHA string  `json:"head_sha,omitempty"`
 	RunIDs  []int64 `json:"run_ids,omitempty"` // every failed run a tick-box retries
+	// Login is the token's user as Plan saw it: Apply counts only its
+	// markers, without asking GitHub again for every action.
+	Login string `json:"-"`
 }
 
 // Result is what Apply did. Action is the action as finally taken: an action
@@ -82,13 +85,34 @@ type Result struct {
 // Only failing to identify the token's user or to list repos is an error;
 // anything else unreadable becomes a report naming what could not be read.
 func Plan(ctx context.Context, c ghapi.Client, org string, scripts string, now time.Time) ([]Action, error) {
+	actions, _, err := planOrg(ctx, c, org, scripts, now)
+	return actions, err
+}
+
+// Remediate plans the org and applies every action, returning the results
+// and how many repos were checked. Planning reads through a per-call memo;
+// Apply gets c itself, since its guard against a concurrent remediate is
+// that it re-reads fresh state.
+func Remediate(ctx context.Context, c ghapi.Client, org, scripts string, now time.Time, dryRun bool) ([]Result, int, error) {
+	actions, n, err := planOrg(ctx, ghapi.NewMemo(c), org, scripts, now)
+	if err != nil {
+		return nil, 0, err
+	}
+	results := make([]Result, len(actions))
+	for i, a := range actions {
+		results[i] = Apply(ctx, c, a, dryRun)
+	}
+	return results, n, nil
+}
+
+func planOrg(ctx context.Context, c ghapi.Client, org string, scripts string, now time.Time) ([]Action, int, error) {
 	login, err := whoami(ctx, c)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	repos, err := attention.Repos(ctx, c, org)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	plans := make([]*planner, len(repos))
 	var wg sync.WaitGroup
@@ -104,7 +128,7 @@ func Plan(ctx context.Context, c ghapi.Client, org string, scripts string, now t
 	for _, p := range plans {
 		out = append(out, p.actions...)
 	}
-	return out, nil
+	return out, len(repos), nil
 }
 
 func whoami(ctx context.Context, c ghapi.Client) (string, error) {
@@ -180,7 +204,12 @@ type planner struct {
 	c                         ghapi.Client
 	org, repo, scripts, login string
 	now                       time.Time
-	progress                  bool // also collect in-progress findings
+	// progress: planning for attention. Collect in-progress findings, plan
+	// a PR only when Retryable asks (lazily, under mu), and skip main and
+	// scheduled runs, whose verdicts attention never uses.
+	progress bool
+	mu       sync.Mutex
+	pending  map[int]attention.Pull // progress: PRs not yet planned
 
 	pats      []Pattern
 	patErr    error
@@ -189,7 +218,7 @@ type planner struct {
 	headRuns  map[string][]attention.Run
 
 	actions    []Action
-	retryable  map[int]bool
+	retryable  map[int]string // PR -> pattern ids
 	unreadable map[int]error
 	findings   []model.Finding
 }
@@ -197,23 +226,46 @@ type planner struct {
 func planRepo(ctx context.Context, c ghapi.Client, org, repo, scripts, login string, now time.Time, progress bool) *planner {
 	p := &planner{ctx: ctx, c: c, org: org, repo: repo, scripts: scripts, login: login, now: now,
 		progress: progress, comments: map[int][]ghComment{}, headRuns: map[string][]attention.Run{},
-		retryable: map[int]bool{}, unreadable: map[int]error{}}
+		retryable: map[int]string{}, unreadable: map[int]error{}, pending: map[int]attention.Pull{}}
 	pulls, err := attention.OpenPulls(ctx, c, org, repo)
 	if err != nil {
 		p.reportErr(0, 0, readNote(err), err)
 	}
 	sort.Slice(pulls, func(i, j int) bool { return pulls[i].Number < pulls[j].Number })
 	for _, pl := range pulls {
-		p.pull(pl)
+		if !progress {
+			p.pull(pl)
+			continue
+		}
+		if isRenovate(pl) {
+			p.prProgress(pl)
+		}
+		p.pending[pl.Number] = pl
 	}
 	p.runs()
 	return p
 }
 
+// verdict plans PR n if it has not been yet, and returns whether remediate
+// would retry it (with which patterns) or why that could not be read.
+func (p *planner) verdict(n int) (string, bool, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if pl, ok := p.pending[n]; ok {
+		delete(p.pending, n)
+		p.pull(pl)
+	}
+	if err := p.unreadable[n]; err != nil {
+		return "", false, err
+	}
+	pat, ok := p.retryable[n]
+	return pat, ok, nil
+}
+
 func (p *planner) base() string { return repoBase(p.org, p.repo) }
 
 func (p *planner) action(kind ActionKind, pr int, runID int64, note string) Action {
-	return Action{Kind: kind, Org: p.org, Repo: p.repo, PR: pr, RunID: runID, Note: note}
+	return Action{Kind: kind, Org: p.org, Repo: p.repo, PR: pr, RunID: runID, Note: note, Login: p.login}
 }
 
 func (p *planner) report(pr int, runID int64, note string) {
@@ -301,9 +353,6 @@ func isRenovate(pl attention.Pull) bool {
 
 func (p *planner) pull(pl attention.Pull) {
 	n := pl.Number
-	if p.progress && isRenovate(pl) {
-		p.prProgress(pl)
-	}
 	cs, _, reds, err := attention.HeadChecksDetail(p.ctx, p.c, p.org, p.repo, pl.Head.SHA, pl.CreatedAt)
 	if err != nil {
 		p.unreadPR(n, 0, readNote(err), err)
@@ -395,7 +444,7 @@ func (p *planner) pull(pl attention.Pull) {
 		a.RunIDs = append(a.RunIDs, r.ID)
 	}
 	p.actions = append(p.actions, a)
-	p.retryable[n] = true
+	p.retryable[n] = a.PatternID
 }
 
 func sortedKeys(m map[string]bool) []string {
@@ -436,7 +485,7 @@ func (p *planner) runs() {
 					Fix: "wait for it to finish",
 				})
 			}
-			if red(r) {
+			if red(r) && !p.progress {
 				p.mainRun(r)
 			}
 		}
@@ -698,7 +747,9 @@ func Apply(ctx context.Context, c ghapi.Client, a Action, dryRun bool) Result {
 	return Result{Action: a, Note: a.Note}
 }
 
-// declined turns a into a report with the reason.
+// declined turns a into a report with the reason. A read error here sets
+// Result.Err, and so exit 1, unlike a Plan-time cannot-read: Apply is about
+// to write, and a write path that cannot confirm its state has failed.
 func declined(a Action, note string, err error) Result {
 	a.Kind, a.Note = KindReport, note
 	return Result{Action: a, Note: note, Err: err}
@@ -756,8 +807,8 @@ func applyTick(ctx context.Context, c ghapi.Client, a Action, dryRun bool) Resul
 		return declined(a, noteExhausted, nil)
 	}
 	base := repoBase(a.Org, a.Repo)
-	login, err := whoami(ctx, c)
-	if err != nil {
+	if a.Login == "" {
+		err := errors.New("no token user from Plan")
 		return declined(a, err.Error(), err)
 	}
 	ppath := fmt.Sprintf("%s/pulls/%d", base, a.PR)
@@ -773,7 +824,7 @@ func applyTick(ctx context.Context, c ghapi.Client, a Action, dryRun bool) Resul
 	case pl.Head.SHA != a.HeadSHA, UpdateKey(pl.Title) != a.Update:
 		return declined(a, noteRequested, nil) // Renovate has already regenerated it
 	}
-	comments, err := ourComments(ctx, c, base, a.PR, login)
+	comments, err := ourComments(ctx, c, base, a.PR, a.Login)
 	if err != nil {
 		return declined(a, readNote(err), err)
 	}
@@ -891,15 +942,12 @@ func (a *Attention) plan(ctx context.Context, repo string) (*planner, error) {
 
 // Retryable is true when remediate would tick or re-run for this PR's head.
 // A verdict that could not be read is an error, never a plain false.
-func (a *Attention) Retryable(ctx context.Context, pr attention.PR) (bool, error) {
+func (a *Attention) Retryable(ctx context.Context, pr attention.PR) (string, bool, error) {
 	p, err := a.plan(ctx, pr.Repo)
 	if err != nil {
-		return false, err
+		return "", false, err
 	}
-	if err := p.unreadable[pr.Number]; err != nil {
-		return false, err
-	}
-	return p.retryable[pr.Number], nil
+	return p.verdict(pr.Number)
 }
 
 // InProgress lists retries fleet has requested that have not yet finished.

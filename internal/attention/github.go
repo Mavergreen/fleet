@@ -154,6 +154,7 @@ func HeadChecksDetail(ctx context.Context, c ghapi.Client, org, repo, sha string
 	var settled *Status
 	var reds []RedCheck
 	red, pending := false, false
+	approvalOnly := true // every red item is a run awaiting approval
 	var since time.Time
 	later := func(t time.Time) {
 		if t.After(since) {
@@ -170,6 +171,7 @@ func HeadChecksDetail(ctx context.Context, c ghapi.Client, org, repo, sha string
 		switch k.Conclusion {
 		case "failure", "timed_out", "cancelled", "action_required":
 			red = true
+			approvalOnly = approvalOnly && k.Conclusion == "action_required"
 			reds = append(reds, RedCheck{Name: k.Name, CheckSuiteID: k.CheckSuite.ID})
 		}
 	}
@@ -182,6 +184,7 @@ func HeadChecksDetail(ctx context.Context, c ghapi.Client, org, repo, sha string
 		switch s.State {
 		case "failure", "error":
 			red = true
+			approvalOnly = false
 			reds = append(reds, RedCheck{Name: s.Context, IsStatus: true})
 		case "pending":
 			pending = true
@@ -191,6 +194,7 @@ func HeadChecksDetail(ctx context.Context, c ghapi.Client, org, repo, sha string
 	switch {
 	case red:
 		cs.State = "red"
+		cs.NeedsApproval = approvalOnly
 	case pending:
 		cs.State = "pending"
 	default:

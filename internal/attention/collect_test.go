@@ -3,6 +3,7 @@ package attention
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"strings"
 	"sync"
@@ -274,5 +275,99 @@ func TestCheckRunsBeyondFirstPage(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("page-2 failure ignored; now: %+v later: %+v", fs, fs2)
+	}
+}
+
+// stubRetry answers for rust#43 only.
+type stubRetry struct {
+	pattern  string
+	ok       bool
+	err      error
+	progress []model.Finding
+	asked    int
+}
+
+func (s *stubRetry) Retryable(_ context.Context, pr PR) (string, bool, error) {
+	s.asked++
+	if pr.Number != 43 {
+		return "", false, nil
+	}
+	return s.pattern, s.ok, s.err
+}
+func (s *stubRetry) InProgress(_ context.Context, repo string) ([]model.Finding, error) {
+	if repo != "rust" {
+		return nil, nil
+	}
+	return s.progress, nil
+}
+
+func findingsFor(fs []model.Finding, item string) []model.Finding {
+	var out []model.Finding
+	for _, f := range fs {
+		if f.Item == item {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
+func collectWith(t *testing.T, r Retry, routes map[string]string) []model.Finding {
+	t.Helper()
+	fs, _, err := Collect(context.Background(), &fake{routes: routes}, "Mavergreen", "", r, cnow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return fs
+}
+
+func TestRetryableButUnretriedIsStuck(t *testing.T) {
+	got := findingsFor(collectWith(t, &stubRetry{pattern: "runner-lost", ok: true}, routes()), "rust#43")
+	if len(got) != 1 || got[0].Kind != model.KindStuckPR ||
+		!strings.HasPrefix(got[0].Why, "red ") || !strings.HasSuffix(got[0].Why, ", retryable (runner-lost) — not yet retried") ||
+		got[0].Fix != "run mavergreen-fleet remediate" {
+		t.Fatalf("%+v", got)
+	}
+}
+
+// A retry already requested speaks for the PR: no second, red-age stuck-pr.
+// (A stale retry, "requested, no run started", likewise wins: the rule the
+// deleted PR.RetryRequestedAt once encoded now lives in retry's prProgress.)
+func TestRetryInProgressSuppressesRedAge(t *testing.T) {
+	for _, k := range []model.Kind{model.KindRetryInProgress, model.KindStuckPR} {
+		prog := model.Finding{Repo: "rust", Item: "rust#43", Kind: k, Since: cnow, Why: "retry 1/2"}
+		s := &stubRetry{progress: []model.Finding{prog}}
+		got := findingsFor(collectWith(t, s, routes()), "rust#43")
+		if len(got) != 1 || got[0] != prog || s.asked != 0 {
+			t.Fatalf("%s: %+v asked %d", k, got, s.asked)
+		}
+	}
+}
+
+// A verdict that could not be read is a cannot-read, and only that.
+func TestRetryableErrorIsOnlyCannotRead(t *testing.T) {
+	got := findingsFor(collectWith(t, &stubRetry{err: errors.New("boom")}, routes()), "retryable check for rust#43")
+	all := collectWith(t, &stubRetry{err: errors.New("boom")}, routes())
+	if len(got) != 1 || got[0].Kind != model.KindCannotRead || len(findingsFor(all, "rust#43")) != 0 {
+		t.Fatalf("%+v / %+v", got, findingsFor(all, "rust#43"))
+	}
+}
+
+// A head red only because a run awaits approval says so.
+func TestActionRequiredSaysApprove(t *testing.T) {
+	r := routes()
+	r["/repos/Mavergreen/rust/commits/sha43/check-runs?per_page=100"] = "rust-checkruns-43-approval.json"
+	s := &stubRetry{}
+	got := findingsFor(collectWith(t, s, r), "rust#43")
+	if len(got) != 1 || got[0].Kind != model.KindStuckPR || got[0].Fix != "approve the workflow run" {
+		t.Fatalf("%+v", got)
+	}
+}
+
+// Retryable is only asked when its answer can change a finding: red > 24h.
+func TestRetryableAskedOnlyWhenItMatters(t *testing.T) {
+	s := &stubRetry{}
+	collectWith(t, s, routes())
+	if s.asked != 1 { // rust#43 is red 16d; rust#44 is green
+		t.Fatalf("asked %d times", s.asked)
 	}
 }
