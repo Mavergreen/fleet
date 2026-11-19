@@ -19,18 +19,23 @@ const graphUsage = "usage: mavergreen-fleet [--json] graph [--dot | --mermaid] [
 
 const timingsJSON = "not yet available (needs family-graph.sh to print pin paths; queued in shipyard)"
 
-// graphRunner builds the exec seam for family-graph.sh; tests replace it.
+// graphRunner builds the exec seam for family-graph.sh, and returns the
+// token the script will see so its stderr can be scrubbed; tests replace it.
 // The environment passes through, with GH_TOKEN added when it is not set.
-var graphRunner = func(e Env) graph.Runner {
+var graphRunner = func(e Env) (graph.Runner, string) {
+	secret, add := e.Getenv("GH_TOKEN"), false
+	if secret == "" {
+		if tok, err := auth.Token(e.Getenv, func(n string, a ...string) ([]byte, error) {
+			return exec.Command(n, a...).Output()
+		}); err == nil {
+			secret, add = tok, true
+		}
+	}
 	return func(ctx context.Context, name string, args ...string) ([]byte, []byte, int, error) {
 		cmd := exec.CommandContext(ctx, name, args...)
 		cmd.Env = os.Environ()
-		if e.Getenv("GH_TOKEN") == "" {
-			if tok, err := auth.Token(e.Getenv, func(n string, a ...string) ([]byte, error) {
-				return exec.Command(n, a...).Output()
-			}); err == nil {
-				cmd.Env = append(cmd.Env, "GH_TOKEN="+tok)
-			}
+		if add {
+			cmd.Env = append(cmd.Env, "GH_TOKEN="+secret)
 		}
 		var out, errb bytes.Buffer
 		cmd.Stdout, cmd.Stderr = &out, &errb
@@ -40,7 +45,7 @@ var graphRunner = func(e Env) graph.Runner {
 			return out.Bytes(), errb.Bytes(), ee.ExitCode(), nil
 		}
 		return out.Bytes(), errb.Bytes(), 0, err
-	}
+	}, secret
 }
 
 func runGraph(ctx context.Context, e Env, args []string, asJSON bool) int {
@@ -78,7 +83,8 @@ func runGraph(ctx context.Context, e Env, args []string, asJSON bool) int {
 			return 1
 		}
 	}
-	g, err := graph.Load(ctx, strings.TrimRight(dir, "/"), graphRunner(e), pass...)
+	run, secret := graphRunner(e)
+	g, err := graph.Load(ctx, strings.TrimRight(dir, "/"), run, secret, pass)
 	if err != nil {
 		fmt.Fprintf(e.Stderr, "mavergreen-fleet: %v\n", err)
 		return 1
@@ -106,6 +112,13 @@ func runGraph(ctx context.Context, e Env, args []string, asJSON bool) int {
 			return 1
 		}
 		return 0
+	}
+	if format != "tree" {
+		// DOT and Mermaid usually go to a file or another program: say what
+		// could not be read where a person will see it, too.
+		for _, l := range g.Incomplete {
+			fmt.Fprintf(e.Stderr, "mavergreen-fleet: graph: cannot read: %s\n", l)
+		}
 	}
 	switch format {
 	case "dot":

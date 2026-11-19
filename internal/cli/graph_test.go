@@ -12,11 +12,11 @@ import (
 func withRunner(t *testing.T, out, errs string, exit int, got *[]string) {
 	t.Helper()
 	old := graphRunner
-	graphRunner = func(Env) graph.Runner {
+	graphRunner = func(Env) (graph.Runner, string) {
 		return func(_ context.Context, name string, args ...string) ([]byte, []byte, int, error) {
 			*got = append([]string{name}, args...)
 			return []byte(out), []byte(errs), exit, nil
-		}
+		}, ""
 	}
 	t.Cleanup(func() { graphRunner = old })
 }
@@ -57,6 +57,25 @@ func TestGraphTreeAndFormats(t *testing.T) {
 	runGraph(context.Background(), e, []string{"--mermaid"}, false)
 	if !strings.HasPrefix(out.String(), "graph LR") {
 		t.Errorf("%s", out)
+	}
+}
+
+// DOT and Mermaid go to files or other programs: what could not be read
+// also goes to stderr, where a person will see it.
+func TestGraphDOTAndMermaidWarnOnStderr(t *testing.T) {
+	var argv []string
+	withRunner(t, "rust -> clang-22\n", "SKIP x: no clone in D\nUNMAPPED y: z\n", 3, &argv)
+	for _, f := range []string{"--dot", "--mermaid"} {
+		e, out, errb, _ := graphEnv(t)
+		if code := runGraph(context.Background(), e, []string{f}, false); code != 0 {
+			t.Fatalf("%s: code %d", f, code)
+		}
+		if errb.String() != "mavergreen-fleet: graph: cannot read: SKIP x: no clone in D\nmavergreen-fleet: graph: cannot read: UNMAPPED y: z\n" {
+			t.Errorf("%s stderr %q", f, errb)
+		}
+		if !strings.Contains(out.String(), "cannot read: SKIP x: no clone in D\n") {
+			t.Errorf("%s stdout %q", f, out)
+		}
 	}
 }
 

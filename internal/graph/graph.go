@@ -70,12 +70,21 @@ type Runner = func(ctx context.Context, name string, args ...string) (stdout, st
 
 // Load runs family-graph.sh from scripts, with extra args (such as
 // --from-dir DIR) passed through. Exit 0 and 3 (partial) yield a graph.
-func Load(ctx context.Context, scripts string, run Runner, args ...string) (Graph, error) {
+// secret (the GH_TOKEN the script was given) is replaced with *** wherever
+// the script's stderr is passed on.
+func Load(ctx context.Context, scripts string, run Runner, secret string, args []string) (Graph, error) {
 	stdout, stderr, exit, err := run(ctx, "sh", append([]string{scripts + "/family-graph.sh"}, args...)...)
+	scrub := func(s string) string {
+		if secret == "" {
+			return s
+		}
+		return strings.ReplaceAll(s, secret, "***")
+	}
+	stderr = []byte(scrub(string(stderr)))
 	if err != nil || (exit != 0 && exit != 3) {
 		why := strings.TrimSpace(string(stderr))
 		if err != nil {
-			why = strings.TrimSpace(why + " " + err.Error())
+			why = strings.TrimSpace(why + " " + scrub(err.Error()))
 		} else if why == "" {
 			why = fmt.Sprintf("exit %d", exit)
 		}
@@ -162,20 +171,26 @@ func Tree(w io.Writer, g Graph) {
 	w.Write(b.Bytes())
 }
 
-// DOT writes Graphviz source. The timings notice is a comment.
+// DOT writes Graphviz source. What could not be read, then the timings
+// notice, are comments.
 func DOT(w io.Writer, g Graph) {
 	var b bytes.Buffer
 	b.WriteString("digraph family {\n")
 	for _, e := range sortedEdges(g) {
 		fmt.Fprintf(&b, "  %q -> %q;\n", e.Consumer, e.Ingredient)
 	}
-	b.WriteString("}\n// " + TimingsNotice + "\n")
+	b.WriteString("}\n")
+	for _, l := range g.Incomplete {
+		b.WriteString("// cannot read: " + l + "\n")
+	}
+	b.WriteString("// " + TimingsNotice + "\n")
 	w.Write(b.Bytes())
 }
 
 // Mermaid writes a left-to-right flowchart. Nodes get safe ids (n0, n1, ...)
 // with the repo name as a quoted label, since names contain "-" and may
-// collide with Mermaid keywords such as "end". The notice is a %% comment.
+// collide with Mermaid keywords such as "end". What could not be read, then
+// the notice, are %% comments.
 func Mermaid(w io.Writer, g Graph) {
 	var b bytes.Buffer
 	b.WriteString("graph LR\n")
@@ -195,6 +210,9 @@ func Mermaid(w io.Writer, g Graph) {
 	}
 	for _, e := range sortedEdges(g) {
 		fmt.Fprintf(&b, "  %s --> %s\n", id[e.Consumer], id[e.Ingredient])
+	}
+	for _, l := range g.Incomplete {
+		b.WriteString("%% cannot read: " + l + "\n")
 	}
 	b.WriteString("%% " + TimingsNotice + "\n")
 	w.Write(b.Bytes())

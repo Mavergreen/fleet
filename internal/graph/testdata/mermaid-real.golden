@@ -1,0 +1,66 @@
+graph LR
+  n0["ca-certs"]
+  n1["clang-22"]
+  n2["claude-code"]
+  n3["cmake"]
+  n4["drydock"]
+  n5["ed25519"]
+  n6["fd"]
+  n7["icu"]
+  n8["iterm2"]
+  n9["jdk-25"]
+  n10["make"]
+  n11["ninja"]
+  n12["python-315"]
+  n13["recaulk"]
+  n14["rg"]
+  n15["rust"]
+  n16["wezterm"]
+  n17["zig"]
+  n2 --> n4
+  n3 --> n1
+  n5 --> n1
+  n6 --> n15
+  n7 --> n1
+  n8 --> n1
+  n8 --> n13
+  n9 --> n0
+  n9 --> n1
+  n9 --> n13
+  n10 --> n1
+  n11 --> n1
+  n12 --> n1
+  n12 --> n13
+  n13 --> n4
+  n14 --> n15
+  n15 --> n10
+  n15 --> n13
+  n16 --> n1
+  n16 --> n10
+  n16 --> n15
+  n17 --> n13
+%% cannot read: UNMAPPED ca-certs: withdrawn
+%% cannot read: UNMAPPED ca-certs: aquatransport-roots
+%% cannot read: UNMAPPED ca-certs: blocked
+%% cannot read: UNMAPPED gh: golang
+%% cannot read: UNMAPPED iterm2: source
+%% cannot read: UNMAPPED iterm2: resources
+%% cannot read: UNMAPPED jdk-25: jdk-source
+%% cannot read: UNMAPPED jdk-25: bootjdk
+%% cannot read: UNMAPPED jdk-25: pandoc
+%% cannot read: UNMAPPED jdk-25: autoconf
+%% cannot read: UNMAPPED jdk-25: m4
+%% cannot read: UNMAPPED longboat: shipyard-scripts
+%% cannot read: UNMAPPED longboat: golang
+%% cannot read: UNMAPPED longboat: installesd-pin
+%% cannot read: UNMAPPED longboat: snowleopard-pins
+%% cannot read: UNMAPPED ninja: ninja-source
+%% cannot read: SKIP nodejs-24: no clone in DIR
+%% cannot read: UNMAPPED python-315: sqlite
+%% cannot read: UNMAPPED python-315: xz
+%% cannot read: UNMAPPED python-315: zstd
+%% cannot read: UNMAPPED recaulk: macports-legacy-support
+%% cannot read: UNMAPPED rust: clang
+%% cannot read: SKIP stevedore: no clone in DIR
+%% cannot read: UNMAPPED zig: clang
+%% propagation timings: not yet available (needs family-graph.sh to print pin paths; queued in shipyard)

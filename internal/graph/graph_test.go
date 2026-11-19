@@ -96,7 +96,7 @@ func fake(r result, got *[]string) func(context.Context, string, ...string) ([]b
 
 func TestExit3KeepsGraphAndListsIncomplete(t *testing.T) {
 	var argv []string
-	g, err := Load(context.Background(), "/s", fake(result{string(read(t, "family-graph.out")), string(read(t, "family-graph.err")), 3, nil}, &argv))
+	g, err := Load(context.Background(), "/s", fake(result{string(read(t, "family-graph.out")), string(read(t, "family-graph.err")), 3, nil}, &argv), "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -121,7 +121,7 @@ func TestScriptFailureNamesWhatItNeeds(t *testing.T) {
 		{err: "bad", exit: 1},
 		{runErr: errors.New("exec: sh: not found")},
 	} {
-		_, err := Load(context.Background(), "/s", fake(r, &argv))
+		_, err := Load(context.Background(), "/s", fake(r, &argv), "", nil)
 		if err == nil || !strings.Contains(err.Error(), "python-315") || !strings.HasPrefix(err.Error(), "graph: family-graph.sh failed: ") {
 			t.Errorf("%+v: %v", r, err)
 			continue
@@ -134,14 +134,14 @@ func TestScriptFailureNamesWhatItNeeds(t *testing.T) {
 
 func TestFromDirPassedThrough(t *testing.T) {
 	var argv []string
-	if _, err := Load(context.Background(), "/s", fake(result{out: "a -> b\n"}, &argv), "--from-dir", "/clones"); err != nil {
+	if _, err := Load(context.Background(), "/s", fake(result{out: "a -> b\n"}, &argv), "", []string{"--from-dir", "/clones"}); err != nil {
 		t.Fatal(err)
 	}
 	want := []string{"sh", "/s/family-graph.sh", "--from-dir", "/clones"}
 	if !reflect.DeepEqual(argv, want) {
 		t.Errorf("argv %v", argv)
 	}
-	if _, err := Load(context.Background(), "/s", fake(result{out: "a -> b\n"}, &argv)); err != nil {
+	if _, err := Load(context.Background(), "/s", fake(result{out: "a -> b\n"}, &argv), "", nil); err != nil {
 		t.Fatal(err)
 	}
 	if !reflect.DeepEqual(argv, want[:2]) {
@@ -179,6 +179,49 @@ func TestMermaidRendering(t *testing.T) {
 	var b bytes.Buffer
 	Mermaid(&b, synthetic(t))
 	golden(t, "mermaid.golden", b.Bytes())
+}
+
+// What could not be read appears in every format, as comments, before the
+// timings notice.
+func TestDOTAndMermaidListIncomplete(t *testing.T) {
+	g := real(t)
+	for name, c := range map[string]struct {
+		render func(*bytes.Buffer, Graph)
+		prefix string
+	}{
+		"dot-real.golden":     {func(b *bytes.Buffer, g Graph) { DOT(b, g) }, "// cannot read: "},
+		"mermaid-real.golden": {func(b *bytes.Buffer, g Graph) { Mermaid(b, g) }, "%% cannot read: "},
+	} {
+		var b bytes.Buffer
+		c.render(&b, g)
+		out := b.String()
+		for _, l := range g.Incomplete {
+			if !strings.Contains(out, c.prefix+l+"\n") {
+				t.Errorf("%s lacks %q", name, l)
+			}
+		}
+		if i, j := strings.LastIndex(out, c.prefix), strings.Index(out, TimingsNotice); i < 0 || i > j {
+			t.Errorf("%s: cannot-read comments must precede the notice", name)
+		}
+		golden(t, name, b.Bytes())
+	}
+}
+
+// The script's stderr can echo the token it was given; never pass it on.
+func TestLoadScrubsToken(t *testing.T) {
+	var argv []string
+	_, err := Load(context.Background(), "/s", fake(result{err: "auth failed for sekrit-tok\n", exit: 1}, &argv), "sekrit-tok", nil)
+	if err == nil || strings.Contains(err.Error(), "sekrit-tok") || !strings.Contains(err.Error(), "***") {
+		t.Errorf("%v", err)
+	}
+	_, err = Load(context.Background(), "/s", fake(result{runErr: errors.New("exec sekrit-tok")}, &argv), "sekrit-tok", nil)
+	if err == nil || strings.Contains(err.Error(), "sekrit-tok") {
+		t.Errorf("%v", err)
+	}
+	g, err := Load(context.Background(), "/s", fake(result{out: "a -> b\n", err: "SKIP x: token sekrit-tok rejected\n", exit: 3}, &argv), "sekrit-tok", nil)
+	if err != nil || len(g.Incomplete) != 1 || g.Incomplete[0] != "SKIP x: token *** rejected" {
+		t.Errorf("%v %q", err, g.Incomplete)
+	}
 }
 
 func TestTimingsNotice(t *testing.T) {
