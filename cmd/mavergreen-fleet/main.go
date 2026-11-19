@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/Mavergreen/fleet/internal/cli"
+	"github.com/Mavergreen/fleet/internal/term"
 )
 
 // version is set with -ldflags "-X main.version=...".
@@ -21,6 +22,7 @@ func main() {
 		Stderr:  os.Stderr,
 		Getenv:  os.Getenv,
 		IsTTY:   isTTY,
+		Width:   func() int { return term.Width(os.Stdout.Fd()) },
 		Now:     time.Now,
 		Version: version,
 	}))

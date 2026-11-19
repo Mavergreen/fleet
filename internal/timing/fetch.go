@@ -77,14 +77,49 @@ type repoResult struct {
 // everything that worked is still returned. cache may be nil. Warnings go to
 // cache.Warn when set.
 func Fetch(ctx context.Context, c ghapi.Client, org string, repos []string, since time.Time, cache *Cache) ([]Run, []Job, error) {
-	results := make([]repoResult, len(repos))
+	return FetchBudgeted(ctx, c, org, repos, since, cache, nil)
+}
+
+// FetchBudgeted is Fetch, but once every repo's runs are listed and before
+// any jobs are requested, it calls budget (when not nil) with the number of
+// runs whose jobs the cache cannot serve: one request each, at least. If
+// budget returns an error, FetchBudgeted returns it and nothing else.
+func FetchBudgeted(ctx context.Context, c ghapi.Client, org string, repos []string, since time.Time, cache *Cache, budget func(uncached int) error) ([]Run, []Job, error) {
+	listed := make([]repoList, len(repos))
 	var wg sync.WaitGroup
-	cw := &cacheWarner{cache: cache}
 	for i, repo := range repos {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			results[i] = fetchRepo(ctx, c, org, repo, since, cache, cw)
+			listed[i] = listRuns(ctx, c, org, repo, since, cache)
+		}()
+	}
+	wg.Wait()
+	if budget != nil {
+		n := 0
+		for _, l := range listed {
+			for _, r := range l.raws {
+				if _, ok := cachedJobs(cache, l.repo, r); !ok {
+					n++
+				}
+			}
+		}
+		if err := budget(n); err != nil {
+			return nil, nil, err
+		}
+	}
+
+	results := make([]repoResult, len(repos))
+	cw := &cacheWarner{cache: cache}
+	for i := range listed {
+		if listed[i].err != nil {
+			results[i].err = listed[i].err
+			continue
+		}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			results[i] = fetchRepoJobs(ctx, c, org, listed[i], cache, cw)
 		}()
 	}
 	wg.Wait()
@@ -133,43 +168,61 @@ func (w *cacheWarner) warn(repo string, err error) {
 	})
 }
 
-func fetchRepo(ctx context.Context, c ghapi.Client, org, repo string, since time.Time, cache *Cache, cw *cacheWarner) repoResult {
-	var res repoResult
-	var raws []apiRun
+// repoList is one repo's runs listing.
+type repoList struct {
+	repo string
+	raws []apiRun
+	err  error
+}
+
+func listRuns(ctx context.Context, c ghapi.Client, org, repo string, since time.Time, cache *Cache) repoList {
+	l := repoList{repo: repo}
 	urlPath := fmt.Sprintf("/repos/%s/%s/actions/runs?created=>=%s&per_page=100", org, repo, since.UTC().Format("2006-01-02"))
 	err := c.GetPaged(ctx, urlPath, func(m json.RawMessage) error {
 		var r apiRun
 		if err := json.Unmarshal(m, &r); err != nil {
 			return err
 		}
-		raws = append(raws, r)
+		l.raws = append(l.raws, r)
 		return nil
 	})
 	if err != nil {
-		res.err = fmt.Errorf("%s: listing runs: %w", repo, err)
-		return res
+		l.err = fmt.Errorf("%s: listing runs: %w", repo, err)
+		l.raws = nil
+		return l
 	}
-	if len(raws) >= listingCap && cache != nil && cache.Warn != nil {
+	if len(l.raws) >= listingCap && cache != nil && cache.Warn != nil {
 		fmt.Fprintf(cache.Warn, "warning: %s: runs listing reached GitHub's %d-result cap; older runs in the window may be missing\n", repo, listingCap)
 	}
+	return l
+}
 
+// cachedJobs serves a completed run's jobs from the cache.
+func cachedJobs(cache *Cache, repo string, r apiRun) ([]Job, bool) {
+	if r.Status != "completed" {
+		return nil, false
+	}
+	return cache.Get(repo, r.ID, r.Attempt)
+}
+
+func fetchRepoJobs(ctx context.Context, c ghapi.Client, org string, l repoList, cache *Cache, cw *cacheWarner) repoResult {
+	var res repoResult
+	repo := l.repo
 	type jr struct {
 		jobs []Job
 		err  error
 	}
-	jrs := make([]jr, len(raws))
+	jrs := make([]jr, len(l.raws))
 	var wg sync.WaitGroup
-	for i, r := range raws {
+	for i, r := range l.raws {
 		run := Run{Repo: repo, Workflow: workflowName(r.Path), HeadBranch: r.HeadBranch, Event: r.Event,
 			Actor: r.Actor.Login, Conclusion: r.Conclusion, ID: r.ID, Attempt: r.Attempt, Created: r.Created}
 		res.runs = append(res.runs, run)
-		completed := r.Status == "completed"
-		if completed {
-			if jobs, ok := cache.Get(repo, r.ID, r.Attempt); ok {
-				jrs[i].jobs = jobs
-				continue
-			}
+		if jobs, ok := cachedJobs(cache, repo, r); ok {
+			jrs[i].jobs = jobs
+			continue
 		}
+		completed := r.Status == "completed"
 		wg.Add(1)
 		go func() {
 			defer wg.Done()

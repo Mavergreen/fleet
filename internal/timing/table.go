@@ -29,6 +29,14 @@ func tableCells(s RepoStats, compact bool) []string {
 
 func runeLen(s string) int { return len([]rune(s)) }
 
+// Truncate shortens s to at most n runes, ending in "…"; n <= 0 means no limit.
+func Truncate(s string, n int) string {
+	if n <= 0 {
+		return s
+	}
+	return truncate(s, n)
+}
+
 func truncate(s string, n int) string {
 	r := []rune(s)
 	if len(r) <= n {

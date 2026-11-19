@@ -3,9 +3,12 @@ package cli
 import (
 	"bytes"
 	"context"
+	"io"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/Mavergreen/fleet/internal/ghapi"
 )
 
 func testEnv() (Env, *bytes.Buffer, *bytes.Buffer) {
@@ -61,4 +64,12 @@ func TestJSONFlagIsGlobal(t *testing.T) {
 	if !gotJSON || len(gotArgs) != 1 || gotArgs[0] != "x" {
 		t.Fatalf("json=%v args=%v", gotJSON, gotArgs)
 	}
+}
+
+// useClient makes connect return c for the rest of the test.
+func useClient(t *testing.T, c ghapi.Client) {
+	t.Helper()
+	old := newClient
+	newClient = func(string, io.Writer) ghapi.Client { return c }
+	t.Cleanup(func() { newClient = old })
 }

@@ -117,7 +117,8 @@ func p90(sorted []float64) float64 {
 }
 
 // Summarize computes one row per (repo, kind), ranked by TotalH descending.
-// Runs flagged JobsUnknown are excluded from every figure.
+// Runs flagged JobsUnknown, and jobs not yet completed, are excluded from
+// every figure (a re-run still counts toward Reruns once it exists).
 //
 // Reruns follows the study: for each run, its highest attempt minus one (so a
 // run attempted three times is two re-runs), counted per repo whether or not
@@ -143,7 +144,9 @@ func Summarize(runs []Run, jobs []Job) []RepoStats {
 		if j.Attempt > maxAttempt[k] {
 			maxAttempt[k] = j.Attempt
 		}
-		if !Skipped(j) {
+		// A job with no Completed is queued or running: it has no figures
+		// yet, and a queued one would otherwise look never-started.
+		if !Skipped(j) && !j.Completed.IsZero() {
 			kept = append(kept, j)
 		}
 	}

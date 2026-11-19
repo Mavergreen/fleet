@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"strings"
 	"testing"
 	"time"
@@ -41,7 +42,7 @@ func (f readOnly) Post(_ context.Context, p string, _, _ any) error {
 
 func TestRemediateDryRunReportsUnreadable(t *testing.T) {
 	old := newClient
-	newClient = func(string) ghapi.Client { return readOnly{t} }
+	newClient = func(string, io.Writer) ghapi.Client { return readOnly{t} }
 	t.Cleanup(func() { newClient = old })
 	e, out, _ := testEnv()
 	e.Getenv = func(k string) string {
@@ -107,7 +108,7 @@ func TestPrintRemediate(t *testing.T) {
 
 func TestRemediateJSONCarriesReadErrors(t *testing.T) {
 	old := newClient
-	newClient = func(string) ghapi.Client { return readOnly{t} }
+	newClient = func(string, io.Writer) ghapi.Client { return readOnly{t} }
 	t.Cleanup(func() { newClient = old })
 	e, out, _ := testEnv()
 	e.Getenv = func(k string) string {

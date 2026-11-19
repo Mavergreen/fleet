@@ -3,6 +3,7 @@ package timing
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestGanttFitsWidth(t *testing.T) {
@@ -64,5 +65,38 @@ func TestCriticalPath(t *testing.T) {
 		if star != on {
 			t.Errorf("marker wrong: %q", l)
 		}
+	}
+}
+
+// Clock skew: GitHub can report a job started before it was created. The
+// bar must still draw, with every cell on the axis.
+func TestGanttClampsClockSkew(t *testing.T) {
+	s := func(n int) time.Time { return t0.Add(time.Duration(n) * time.Second) }
+	jobs := []Job{
+		mac("skewed", s(0), s(-2), s(20)),
+		mac("other", s(1), s(2), s(30)),
+		mac("ends-before-start", s(5), s(6), s(-3)),
+	}
+	for _, w := range []int{30, 80} {
+		lines := Gantt(jobs, w)
+		if len(lines) != 4 {
+			t.Fatalf("width %d: %q", w, lines)
+		}
+		for _, l := range lines {
+			if n := len([]rune(l)); n > w {
+				t.Errorf("width %d: %d runes: %q", w, n, l)
+			}
+		}
+	}
+}
+
+func TestGanttFullNeverTruncates(t *testing.T) {
+	name := "a-very-long-job-name-that-keeps-going-and-going-past-any-sane-column"
+	lines := GanttFull([]Job{mac(name, at(0), at(30), at(90))}, 40)
+	if !strings.Contains(lines[0], name) || strings.Contains(strings.Join(lines, "\n"), "…") {
+		t.Fatalf("%q", lines)
+	}
+	if !strings.Contains(lines[0], "█") {
+		t.Fatalf("no bar: %q", lines[0])
 	}
 }

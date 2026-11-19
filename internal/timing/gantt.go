@@ -92,8 +92,15 @@ func CriticalPath(jobs []Job) []string {
 
 // Gantt draws one line per job on a shared time axis: ░ for queue wait, █
 // for run, * before the name on the critical path, then a footer with the
-// axis duration. Lines are at most width runes (width <= 0 means 80).
-func Gantt(jobs []Job, width int) []string {
+// axis duration. Lines are at most width runes (width <= 0 means 80): long
+// names are truncated.
+func Gantt(jobs []Job, width int) []string { return gantt(jobs, width, true) }
+
+// GanttFull is Gantt for output that is not a terminal: names are never
+// truncated, and width only sizes the bars, so lines may be longer.
+func GanttFull(jobs []Job, width int) []string { return gantt(jobs, width, false) }
+
+func gantt(jobs []Job, width int, fit bool) []string {
 	if width <= 0 {
 		width = 80
 	}
@@ -129,22 +136,27 @@ func Gantt(jobs []Job, width int) []string {
 	}
 	const minBar = 20
 	nameW := longest
-	if max := width - 2 - minBar; nameW > max {
+	if max := width - 2 - minBar; fit && nameW > max {
 		nameW = max
 	}
 	if nameW < 4 {
 		nameW = 4
 	}
 	barW := width - 2 - nameW
+	if !fit && barW < minBar {
+		barW = minBar
+	}
 	if barW < 1 {
 		barW = 1
 	}
 
+	// cell maps t onto [0, barW]: clock skew (a job started before it was
+	// created, or ended before it started) must not index off the bar.
 	cell := func(t time.Time) int {
 		if span <= 0 {
 			return 0
 		}
-		return int(float64(t.Sub(start)) / float64(span) * float64(barW))
+		return clamp(int(float64(t.Sub(start))/float64(span)*float64(barW)), 0, barW)
 	}
 	var lines []string
 	for i, j := range jobs {
@@ -158,22 +170,20 @@ func Gantt(jobs []Job, width int) []string {
 			s = e
 		}
 		a, b, c := cell(j.Created), cell(s), cell(e)
-		if b > barW {
-			b = barW
+		if b < a {
+			b = a
 		}
 		if s.After(j.Created) && b <= a && a < barW {
 			b = a + 1
 		}
+		if c < b {
+			c = b
+		}
 		if e.After(s) && c <= b {
 			c = b + 1
 		}
-		if c > barW {
-			c = barW
-		}
-		if b > c {
-			b = c
-		}
-		for k := a; k < b && k < barW; k++ {
+		a, b, c = clamp(a, 0, barW), clamp(b, 0, barW), clamp(c, 0, barW)
+		for k := a; k < b; k++ {
 			bar[k] = '░'
 		}
 		for k := b; k < c; k++ {
@@ -183,10 +193,26 @@ func Gantt(jobs []Job, width int) []string {
 		if crit[i] {
 			mark = "*"
 		}
-		name := truncate(names[i], nameW)
+		name := names[i]
+		if fit {
+			name = truncate(name, nameW)
+		}
 		name += strings.Repeat(" ", nameW-runeLen(name))
 		lines = append(lines, strings.TrimRight(mark+name+" "+string(bar), " "))
 	}
 	footer := fmt.Sprintf("axis %s  ░ wait  █ run  * critical path", span.Round(time.Second))
-	return append(lines, truncate(footer, width))
+	if fit {
+		footer = truncate(footer, width)
+	}
+	return append(lines, footer)
+}
+
+func clamp(n, lo, hi int) int {
+	switch {
+	case n < lo:
+		return lo
+	case n > hi:
+		return hi
+	}
+	return n
 }

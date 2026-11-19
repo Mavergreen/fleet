@@ -303,3 +303,33 @@ func TestFetchWarnsAtListingCap(t *testing.T) {
 		t.Fatalf("warn = %q", warn.String())
 	}
 }
+
+// The budget sees how many runs need a jobs request (cached ones do not),
+// before any is made, and can stop the fetch.
+func TestFetchAsksBudgetBeforeJobs(t *testing.T) {
+	f := &fake{pages: map[string][]string{
+		runsPath: {runJSON(7, "completed", 1, "2026-11-18T09:00:00Z"), runJSON(8, "completed", 1, "2026-11-18T09:00:00Z"),
+			runJSON(9, "in_progress", 1, "2026-11-18T09:00:00Z")},
+		jobsPath(7): {jobA1}, jobsPath(8): {jobA1}, jobsPath(9): {jobA1},
+	}}
+	cache := &Cache{Dir: t.TempDir()}
+	if err := cache.Put(Run{Repo: "a", ID: 7, Attempt: 1}, []Job{{Name: "build", Attempt: 1}}); err != nil {
+		t.Fatal(err)
+	}
+	stop := fmt.Errorf("over budget")
+	var asked []int
+	_, jobs, err := FetchBudgeted(context.Background(), f, "Mavergreen", []string{"a"}, since, cache, func(n int) error {
+		asked = append(asked, n)
+		return stop
+	})
+	if err != stop || jobs != nil || f.jobCalls() != 0 {
+		t.Fatalf("err %v jobs %v jobCalls %d", err, jobs, f.jobCalls())
+	}
+	if !reflect.DeepEqual(asked, []int{2}) {
+		t.Fatalf("budget asked %v, want [2] (run 7 is cached)", asked)
+	}
+	_, jobs, err = FetchBudgeted(context.Background(), f, "Mavergreen", []string{"a"}, since, cache, func(int) error { return nil })
+	if err != nil || len(jobs) != 3 || f.jobCalls() != 2 {
+		t.Fatalf("err %v jobs %d jobCalls %d", err, len(jobs), f.jobCalls())
+	}
+}

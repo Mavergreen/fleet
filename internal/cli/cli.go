@@ -25,8 +25,11 @@ type Env struct {
 	Stdout, Stderr io.Writer
 	Getenv         func(string) string
 	IsTTY          bool
-	Now            func() time.Time
-	Version        string
+	// Width is the terminal's width in columns (0 if unknown); only asked
+	// when IsTTY. A seam so tests need no terminal.
+	Width   func() int
+	Now     func() time.Time
+	Version string
 }
 
 // Command is a registered subcommand.
@@ -80,7 +83,9 @@ func run(args []string, e Env, cmds []Command) int {
 }
 
 // newClient builds the GitHub client; tests replace it.
-var newClient = func(token string) ghapi.Client { return ghapi.New(token, ghapi.Options{}) }
+var newClient = func(token string, notice io.Writer) ghapi.Client {
+	return ghapi.New(token, ghapi.Options{Notice: notice})
+}
 
 // connect returns a client for the user's token.
 func connect(e Env) (ghapi.Client, error) {
@@ -90,7 +95,7 @@ func connect(e Env) (ghapi.Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	return newClient(token), nil
+	return newClient(token, e.Stderr), nil
 }
 
 // scripts locates shipyard's scripts. Without them, a repo that declares
@@ -107,6 +112,28 @@ func scripts(e Env) string {
 	return p
 }
 
+// textWidth is how wide text output may be. On a terminal: COLUMNS when
+// set, else the terminal's width; fit is true and output is truncated to
+// width (0 means unknown: no truncation). Off a terminal nothing is
+// truncated (fit is false), but width still sizes Gantt bars: COLUMNS when
+// set, else 80.
+func textWidth(e Env) (width int, fit bool) {
+	cols, _ := strconv.Atoi(e.Getenv("COLUMNS"))
+	if cols < 0 {
+		cols = 0
+	}
+	if !e.IsTTY {
+		if cols == 0 {
+			cols = 80
+		}
+		return cols, false
+	}
+	if cols == 0 && e.Width != nil {
+		cols = e.Width()
+	}
+	return cols, true
+}
+
 func runAttention(ctx context.Context, e Env, _ []string, asJSON bool) int {
 	c, err := connect(e)
 	if err != nil {
@@ -119,7 +146,10 @@ func runAttention(ctx context.Context, e Env, _ []string, asJSON bool) int {
 		fmt.Fprintf(e.Stderr, "mavergreen-fleet: %v\n", err)
 		return 1
 	}
-	width, _ := strconv.Atoi(e.Getenv("COLUMNS"))
+	width, fit := textWidth(e)
+	if !fit {
+		width = 0
+	}
 	if err := render.Findings(e.Stdout, fs, checked, render.Options{TTY: e.IsTTY, Width: width, JSON: asJSON, Now: now}); err != nil {
 		fmt.Fprintf(e.Stderr, "mavergreen-fleet: %v\n", err)
 		return 1

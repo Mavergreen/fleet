@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"sort"
@@ -15,7 +16,18 @@ import (
 	"github.com/Mavergreen/fleet/internal/timing"
 )
 
-const timingUsage = "usage: mavergreen-fleet [--json] timing [--since YYYY-MM-DD|7d|48h] [repo [run-id]]"
+const timingUsage = "usage: mavergreen-fleet [--json] timing [--since YYYY-MM-DD|7d|48h] [--force] [repo [run-id]]"
+
+// quotaReserve is how much of the shared hourly quota timing leaves for
+// everything else (other agents, remediate) unless --force.
+const quotaReserve = 500
+
+// errQuota stops a fleet timing that would use most of the shared quota.
+type errQuota struct{ need, left int }
+
+func (e errQuota) Error() string {
+	return fmt.Sprintf("timing would use ~%d requests; only %d left this hour (shared quota). Use --since to narrow, or wait.", e.need, e.left)
+}
 
 // parseSince reads a date (YYYY-MM-DD, UTC) or a duration back from now
 // (7d, 48h).
@@ -37,6 +49,7 @@ func parseSince(s string, now time.Time) (time.Time, error) {
 func runTiming(ctx context.Context, e Env, args []string, asJSON bool) int {
 	now := e.Now()
 	sinceArg := ""
+	force := false
 	var pos []string
 	for i := 0; i < len(args); i++ {
 		switch a := args[i]; {
@@ -45,6 +58,8 @@ func runTiming(ctx context.Context, e Env, args []string, asJSON bool) int {
 			sinceArg = args[i]
 		case strings.HasPrefix(a, "--since="):
 			sinceArg = strings.TrimPrefix(a, "--since=")
+		case a == "--force":
+			force = true
 		case strings.HasPrefix(a, "-"):
 			fmt.Fprintf(e.Stderr, "mavergreen-fleet: timing: unknown argument %q\n%s\n", a, timingUsage)
 			return 2
@@ -84,20 +99,31 @@ func runTiming(ctx context.Context, e Env, args []string, asJSON bool) int {
 	} else {
 		cache.Warn = e.Stderr
 	}
-	width, _ := strconv.Atoi(e.Getenv("COLUMNS"))
 	if len(pos) == 0 {
-		return timingFleet(ctx, e, c, since, cache, width, asJSON, now)
+		return timingFleet(ctx, e, c, since, cache, force, asJSON, now)
 	}
-	return timingRun(ctx, e, c, pos[0], runID, since, cache, width, asJSON, now)
+	return timingRun(ctx, e, c, pos[0], runID, since, cache, asJSON, now)
 }
 
-func timingFleet(ctx context.Context, e Env, c ghapi.Client, since time.Time, cache *timing.Cache, width int, asJSON bool, now time.Time) int {
+func timingFleet(ctx context.Context, e Env, c ghapi.Client, since time.Time, cache *timing.Cache, force, asJSON bool, now time.Time) int {
 	repos, err := attention.Repos(ctx, c, org)
 	if err != nil {
 		fmt.Fprintf(e.Stderr, "mavergreen-fleet: %v\n", err)
 		return 1
 	}
-	runs, jobs, ferr := timing.Fetch(ctx, c, org, repos, since, cache)
+	// A cold cache costs a request per run: check the shared quota first.
+	budget := func(need int) error {
+		if left := ghapi.Remaining(c); !force && left >= 0 && need > left-quotaReserve {
+			return errQuota{need, left}
+		}
+		return nil
+	}
+	runs, jobs, ferr := timing.FetchBudgeted(ctx, c, org, repos, since, cache, budget)
+	var eq errQuota
+	if errors.As(ferr, &eq) {
+		fmt.Fprintf(e.Stderr, "mavergreen-fleet: %v\n", eq)
+		return 1
+	}
 	unreadable := map[string]int{}
 	for _, r := range runs {
 		if r.JobsUnknown {
@@ -135,6 +161,10 @@ func timingFleet(ctx context.Context, e Env, c ghapi.Client, since time.Time, ca
 	if len(stats) == 0 {
 		fmt.Fprintf(e.Stdout, "no jobs since %s in %d repos checked\n", since.UTC().Format("2006-01-02"), len(repos))
 	} else {
+		width, fit := textWidth(e)
+		if !fit {
+			width = 0 // no limit
+		}
 		io.WriteString(e.Stdout, timing.Table(stats, width, e.IsTTY))
 	}
 	names := make([]string, 0, len(unreadable))
@@ -154,7 +184,7 @@ func timingFleet(ctx context.Context, e Env, c ghapi.Client, since time.Time, ca
 	return 0
 }
 
-func timingRun(ctx context.Context, e Env, c ghapi.Client, repo string, runID int64, since time.Time, cache *timing.Cache, width int, asJSON bool, now time.Time) int {
+func timingRun(ctx context.Context, e Env, c ghapi.Client, repo string, runID int64, since time.Time, cache *timing.Cache, asJSON bool, now time.Time) int {
 	fail := func(err error) int {
 		fmt.Fprintf(e.Stderr, "mavergreen-fleet: %v\n", err)
 		return 1
@@ -174,10 +204,20 @@ func timingRun(ctx context.Context, e Env, c ghapi.Client, repo string, runID in
 			}
 		}
 		if !ok {
+			// Nothing to show is an answer, not an error: exit 0 either way.
+			none := fmt.Sprintf("no runs in %s since %s", repo, since.UTC().Format("2006-01-02"))
 			if asJSON {
-				return fail(fmt.Errorf("%s: no runs since %s", repo, since.UTC().Format("2006-01-02")))
+				if err := render.JSON(e.Stdout, "timing", struct {
+					Repo         string   `json:"repo"`
+					Note         string   `json:"note"`
+					Jobs         []any    `json:"jobs"`
+					CriticalPath []string `json:"critical_path"`
+				}{repo, none, []any{}, []string{}}, now); err != nil {
+					return fail(err)
+				}
+				return 0
 			}
-			fmt.Fprintf(e.Stdout, "no runs in %s since %s\n", repo, since.UTC().Format("2006-01-02"))
+			fmt.Fprintln(e.Stdout, none)
 			return 0
 		}
 		runID = r.ID
@@ -223,9 +263,16 @@ func timingRun(ctx context.Context, e Env, c ghapi.Client, repo string, runID in
 	if note != "" {
 		fmt.Fprintln(e.Stdout, note)
 	}
-	fmt.Fprintf(e.Stdout, "%s %s run %d (%s, attempt %d) created %s\n", repo, run.Workflow, run.ID,
+	width, fit := textWidth(e)
+	head := fmt.Sprintf("%s %s run %d (%s, attempt %d) created %s", repo, run.Workflow, run.ID,
 		orDash(run.Conclusion), run.Attempt, run.Created.UTC().Format("2006-01-02 15:04Z"))
-	for _, l := range timing.Gantt(jobs, width) {
+	lines := timing.GanttFull(jobs, width)
+	if fit {
+		head = timing.Truncate(head, width)
+		lines = timing.Gantt(jobs, width)
+	}
+	fmt.Fprintln(e.Stdout, head)
+	for _, l := range lines {
 		fmt.Fprintln(e.Stdout, l)
 	}
 	return 0

@@ -223,3 +223,20 @@ func TestTableFitsWidthAndHasNoANSIOffTTY(t *testing.T) {
 		t.Error("expected styling on a tty")
 	}
 }
+
+// A job still queued or running (no Completed) has no figures yet: counting
+// a queued job would make it "never started".
+func TestUnfinishedJobsExcluded(t *testing.T) {
+	queued := mac("queued", at(0), time.Time{}, time.Time{})
+	queued.RunnerName, queued.AnyStepStarted, queued.Conclusion = "", false, ""
+	running := mac("running", at(0), at(5), time.Time{})
+	running.Conclusion = ""
+	done := mac("done", at(0), at(1), at(11))
+	stats := Summarize([]Run{{Repo: "r", ID: 1, Attempt: 1}}, []Job{queued, running, done})
+	if len(stats) != 1 || stats[0].Jobs != 1 || stats[0].NeverStarted != 0 || stats[0].NeverStartedWaitH != 0 {
+		t.Fatalf("%+v", stats)
+	}
+	if math.Abs(stats[0].WaitH-1.0/60) > 1e-9 || math.Abs(stats[0].RunH-10.0/60) > 1e-9 {
+		t.Fatalf("%+v", stats[0])
+	}
+}
