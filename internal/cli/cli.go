@@ -5,8 +5,17 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os/exec"
+	"strconv"
 	"time"
+
+	"github.com/Mavergreen/fleet/internal/attention"
+	"github.com/Mavergreen/fleet/internal/auth"
+	"github.com/Mavergreen/fleet/internal/ghapi"
+	"github.com/Mavergreen/fleet/internal/render"
 )
+
+const org = "Mavergreen"
 
 // Env is everything a command needs from the outside world.
 type Env struct {
@@ -28,7 +37,7 @@ const defaultCommand = "attention"
 // commands is the production registry; later tasks add to it.
 func commands() []Command {
 	return []Command{
-		{Name: "attention", Run: func(context.Context, Env, []string, bool) int { return 0 }},
+		{Name: "attention", Run: runAttention},
 	}
 }
 
@@ -62,4 +71,28 @@ func run(args []string, e Env, cmds []Command) int {
 	}
 	fmt.Fprintf(e.Stderr, "mavergreen-fleet: unknown command %q\nusage: mavergreen-fleet [--json] [--version] [command] [args]\n", name)
 	return 2
+}
+
+func runAttention(ctx context.Context, e Env, _ []string, asJSON bool) int {
+	token, err := auth.Token(e.Getenv, func(name string, args ...string) ([]byte, error) {
+		return exec.Command(name, args...).Output()
+	})
+	if err != nil {
+		fmt.Fprintf(e.Stderr, "mavergreen-fleet: %v\n", err)
+		return 1
+	}
+	now := e.Now()
+	c := ghapi.New(token, ghapi.Options{})
+	// A later task replaces NoRetry with the retry package's implementation.
+	fs, checked, err := attention.Collect(ctx, c, org, "", attention.NoRetry{}, now)
+	if err != nil {
+		fmt.Fprintf(e.Stderr, "mavergreen-fleet: %v\n", err)
+		return 1
+	}
+	width, _ := strconv.Atoi(e.Getenv("COLUMNS"))
+	if err := render.Findings(e.Stdout, fs, checked, render.Options{TTY: e.IsTTY, Width: width, JSON: asJSON, Now: now}); err != nil {
+		fmt.Fprintf(e.Stderr, "mavergreen-fleet: %v\n", err)
+		return 1
+	}
+	return 0
 }

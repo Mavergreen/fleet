@@ -1,0 +1,4 @@
+[{"number":43,"pull_request":{},"html_url":"https://github.com/Mavergreen/rust/pull/43","title":"bump serde","created_at":"2026-11-02T08:00:00Z","updated_at":"2026-11-03T10:00:00Z","user":{"login":"renovate[bot]","type":"Bot"}},
+{"number":44,"pull_request":{},"html_url":"https://github.com/Mavergreen/rust/pull/44","title":"bump tokio","created_at":"2026-11-19T05:00:00Z","updated_at":"2026-11-19T05:00:00Z","user":{"login":"renovate[bot]","type":"Bot"}},
+{"number":50,"html_url":"https://github.com/Mavergreen/rust/issues/50","title":"Build fails on musl","created_at":"2026-11-10T08:00:00Z","updated_at":"2026-11-12T08:00:00Z","user":{"login":"outsider","type":"User"}},
+{"number":51,"html_url":"https://github.com/Mavergreen/rust/issues/51","title":"Docs typo","created_at":"2026-11-11T08:00:00Z","updated_at":"2026-11-12T08:00:00Z","user":{"login":"helper","type":"User"}}]
