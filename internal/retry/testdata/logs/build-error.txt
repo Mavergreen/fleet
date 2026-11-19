@@ -1,0 +1,22 @@
+build-native	UNKNOWN STEP	2026-11-13T01:40:12.1421200Z ^[[1m^[[92m   Compiling^[[0m gix-transport v0.57.2
+build-native	UNKNOWN STEP	2026-11-13T01:40:16.5820450Z ^[[1m^[[92m   Compiling^[[0m gix-protocol v0.63.0
+build-native	UNKNOWN STEP	2026-11-13T01:40:24.1030630Z ^[[1m^[[33mwarning^[[0m: libssh2-sys@0.3.4: libssh2/src/comp.c:178:22: error: use of undeclared identifier 'z_const'; did you mean 'const'?
+build-native	UNKNOWN STEP	2026-11-13T01:40:24.1031670Z ^[[1m^[[33mwarning^[[0m: libssh2-sys@0.3.4:   178 |     strm->next_in = (z_const Bytef *)src;
+build-native	UNKNOWN STEP	2026-11-13T01:40:24.1032480Z ^[[1m^[[33mwarning^[[0m: libssh2-sys@0.3.4:       |                      ^~~~~~~
+build-native	UNKNOWN STEP	2026-11-13T01:40:24.1033160Z ^[[1m^[[33mwarning^[[0m: libssh2-sys@0.3.4: libssh2/src/comp.c:229:22: error: use of undeclared identifier 'z_const'; did you mean 'const'?
+build-native	UNKNOWN STEP	2026-11-13T01:40:24.1034010Z ^[[1m^[[33mwarning^[[0m: libssh2-sys@0.3.4:   229 |     strm->next_in = (z_const Bytef *)src;
+build-native	UNKNOWN STEP	2026-11-13T01:40:24.1034560Z ^[[1m^[[33mwarning^[[0m: libssh2-sys@0.3.4:       |                      ^~~~~~~
+build-native	UNKNOWN STEP	2026-11-13T01:40:24.1035130Z ^[[1m^[[33mwarning^[[0m: libssh2-sys@0.3.4: 2 errors generated.
+build-native	UNKNOWN STEP	2026-11-13T01:40:24.1046680Z ^[[1m^[[33mwarning^[[0m: libssh2-sys@0.3.4: ToolExecError: command did not execute successfully (status code exit status: 1): env -u IPHONEOS_DEPLOYMENT_TARGET LC_ALL="C" "ccache" "/Users/runner/.cache/mavergreen-rust/work-native/clang-cross-22.1.8-mavericks.12/bin/clang" "-O3" "-ffunction-sections" "-fdata-sections" "-fPIC" "-m64" "--target=x
+build-native	UNKNOWN STEP	2026-11-13T01:40:24.1055820Z ^[[1m^[[91merror^[[0m: failed to run custom build command for `libssh2-sys v0.3.4`
+build-native	UNKNOWN STEP	2026-11-13T01:40:24.1056350Z 
+build-native	UNKNOWN STEP	2026-11-13T01:40:24.1056580Z Caused by:
+build-native	UNKNOWN STEP	2026-11-13T01:40:24.1058160Z   process didn't exit successfully: `/Users/runner/.cache/mavergreen-rust/work-native/rustc-1.100.0-src/build/aarch64-apple-darwin/stage2-tools/release/build/libssh2-sys/7e1f44ffca212501/out/build_script_build` (exit status: 1)
+build-native	UNKNOWN STEP	2026-11-13T01:40:24.1059090Z   --- stdout
+build-native	UNKNOWN STEP	2026-11-13T01:40:24.4662610Z Currently active steps:
+build-native	UNKNOWN STEP	2026-11-13T01:40:24.4674210Z install::Cargo { build_compiler: Compiler { stage: 1, host: aarch64-apple-darwin, forced_compiler: false }, target: x86_64-apple-darwin } at src/bootstrap/src/core/build_steps/install.rs:209
+build-native	UNKNOWN STEP	2026-11-13T01:40:24.4675320Z dist::Cargo { build_compiler: Compiler { stage: 1, host: aarch64-apple-darwin, forced_compiler: false }, target: x86_64-apple-darwin } at src/bootstrap/src/core/build_steps/install.rs:224
+build-native	UNKNOWN STEP	2026-11-13T01:40:24.4676940Z tool::Cargo { build_compiler: Compiler { stage: 1, host: aarch64-apple-darwin, forced_compiler: false }, target: x86_64-apple-darwin } at src/bootstrap/src/core/build_steps/dist.rs:1478
+build-native	UNKNOWN STEP	2026-11-13T01:40:24.4678750Z tool::ToolBuild { build_compiler: Compiler { stage: 1, host: aarch64-apple-darwin, forced_compiler: false }, target: x86_64-apple-darwin, tool: "cargo", path: "src/tools/cargo", mode: ToolTarget, source_type: Submodule, extra_features: [], allow_features: "min_specialization,specialization", cargo_args: [], artifact_kind: Binary } at src/boots
+build-native	UNKNOWN STEP	2026-11-13T01:40:24.4794600Z Build completed unsuccessfully in 1:44:40
+build-native	UNKNOWN STEP	2026-11-13T01:40:24.5301860Z ##[error]Process completed with exit code 1.

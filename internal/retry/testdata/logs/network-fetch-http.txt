@@ -1,0 +1,4 @@
+SYNTHETIC: shaped from mavericks_fetch.sh lines 59-68 (HTTP 429/5?? case, retry and giving-up echo); not a real log.
+collect	UNKNOWN STEP	2026-11-08T08:44:02.1120000Z shipyard_curl: https://github.com/Mavergreen/shipyard/releases/download/v1.0.723/mavericks-shipyard-1.0.723.pkg: HTTP 503; retry 4 of 5 in 16s
+collect	UNKNOWN STEP	2026-11-08T08:44:25.7686350Z shipyard_curl: https://github.com/Mavergreen/shipyard/releases/download/v1.0.723/mavericks-shipyard-1.0.723.pkg: HTTP 429; giving up after 5 tries
+collect	UNKNOWN STEP	2026-11-08T08:44:25.7790000Z ##[error]Process completed with exit code 22.

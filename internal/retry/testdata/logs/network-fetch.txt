@@ -1,0 +1,10 @@
+build-native	UNKNOWN STEP	2026-11-09T06:08:51.8002080Z   MAVERICKS_USE_CCACHE: 1
+build-native	UNKNOWN STEP	2026-11-09T06:08:51.8002370Z   CCACHE_COMPILERCHECK: %compiler% --version
+build-native	UNKNOWN STEP	2026-11-09T06:08:51.8002770Z ##[endgroup]
+build-native	UNKNOWN STEP	2026-11-09T06:09:13.4966560Z shipyard_curl: https://github.com/Mavergreen/cmake/releases/download/4.4.5-mavericks.2/cmake-4.4.5-mavericks.2.pkg: curl exit 56; retry 1 of 5 in 2s
+build-native	UNKNOWN STEP	2026-11-09T06:09:15.7883110Z shipyard_curl: https://github.com/Mavergreen/cmake/releases/download/4.4.5-mavericks.2/cmake-4.4.5-mavericks.2.pkg: curl exit 56; retry 2 of 5 in 4s
+build-native	UNKNOWN STEP	2026-11-09T06:09:19.8855920Z shipyard_curl: https://github.com/Mavergreen/cmake/releases/download/4.4.5-mavericks.2/cmake-4.4.5-mavericks.2.pkg: curl exit 56; retry 3 of 5 in 8s
+build-native	UNKNOWN STEP	2026-11-09T06:09:28.0241720Z shipyard_curl: https://github.com/Mavergreen/cmake/releases/download/4.4.5-mavericks.2/cmake-4.4.5-mavericks.2.pkg: curl exit 56; retry 4 of 5 in 16s
+build-native	UNKNOWN STEP	2026-11-09T06:09:44.1602130Z shipyard_curl: https://github.com/Mavergreen/cmake/releases/download/4.4.5-mavericks.2/cmake-4.4.5-mavericks.2.pkg: curl exit 56; giving up after 5 tries
+build-native	UNKNOWN STEP	2026-11-09T06:09:44.1718650Z fetch-release-pkg: could not fetch and verify https://github.com/Mavergreen/cmake/releases/download/4.4.5-mavericks.2/cmake-4.4.5-mavericks.2.pkg
+build-native	UNKNOWN STEP	2026-11-09T06:09:44.1731340Z ##[error]Process completed with exit code 1.
