@@ -121,6 +121,8 @@ jobs:
           set -eu
           sh build/build-universal.sh "$GO_DARWIN" "$GO_UPSTREAM" "$MAVERICKS_BUILD_ROOT/fleet-darwin" "$VER"
           sh build/build-fleet.sh "$GO_UPSTREAM" linux amd64 "$MAVERICKS_BUILD_ROOT/fleet-linux" "$VER"
+          # spec: mavergreen-gh INGREDIENTS.md -- golang-127's runtime calls clock_gettime, which 10.9's
+          #   libSystem lacks and Recaulk provides: requiring it DEFINED proves that shim was linked.
           MAVERICKS_ALLOW_ARCHS="x86_64" MAVERICKS_DEVIATIONS_ROOT="$PWD" \
             MAVERICKS_REQUIRE_DEFINED_SYMBOLS="_clock_gettime" \
             sh "$SHIPYARD_SCRIPTS/assert_binary_compatible.sh" "$MAVERICKS_BUILD_ROOT/fleet-darwin/amd64/mavergreen-fleet"
@@ -226,7 +228,6 @@ jobs:
           set -eu
           [ "$(uname -m)" = arm64 ] && [ "$(arch)" = arm64 ] || { echo "::error::this runner is not running arm64 natively"; exit 1; }
           sudo installer -pkg "dist/fleet-$FLEET_VERSION_UNDER_TEST.pkg" -target /
-          lipo -info /usr/local/mavergreen/fleet/bin/mavergreen-fleet
           /usr/local/mavergreen/fleet/bin/mavergreen-fleet --version
           rc=0
           sh tests/smoke-mavericks.sh || rc=$?
