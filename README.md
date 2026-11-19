@@ -14,8 +14,9 @@ x86_64 Linux, as you, and never needs root.
 - `mavergreen-fleet` (or `mavergreen-fleet attention`): everything family-wide that needs a human, such as
   stuck pull requests and repos it could not read. An empty list says what it checked.
 - `mavergreen-fleet remediate [--dry-run]`: for a Renovate PR whose failure matches a known transient
-  pattern, ticks its rebase/retry checkbox, at most twice per update. Other failures are reported as
-  needing attention and not re-run, until re-runs are verified. `--dry-run` says what it would do and
+  pattern, ticks its rebase/retry checkbox, at most twice per update; for a run on `main` or a scheduled
+  run that matches, re-runs its failed jobs, at most twice per run. Everything else is reported as
+  needing attention. `--dry-run` says what it would do and
   changes nothing. It never merges, cancels or deletes anything.
 - `mavergreen-fleet timing [repo [run-id]]`: where Actions time goes. With no repo, a table per repo and
   runner kind; with a repo, that repo's latest `release.yml` run (or the run named) as Gantt bars of

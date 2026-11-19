@@ -17,9 +17,10 @@ import (
 )
 
 // RerunsWork records whether Task 0's spike proved that re-running a failed
-// run passes install@v1 (github.action_ref is empty on a re-run). Until it
-// has, runs on main and scheduled runs are report-only.
-const RerunsWork = false
+// run passes install@v1 (github.action_ref is empty on a re-run). It did on
+// 2026-11-19: Mavergreen/ed25519 run 44561392663, attempt 2, resolved
+// SHIPYARD_VERSION from the fallback (see the spec's remediate section).
+const RerunsWork = true
 
 // rerunsEnabled is RerunsWork; tests flip it to exercise the re-run path.
 var rerunsEnabled = RerunsWork

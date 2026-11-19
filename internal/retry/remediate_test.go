@@ -353,17 +353,19 @@ func only(t *testing.T, as []Action) Action {
 	return as[0]
 }
 
-func enableReruns(t *testing.T) {
+func enableReruns(t *testing.T) { setReruns(t, true) }
+
+func setReruns(t *testing.T, on bool) {
 	old := rerunsEnabled
-	rerunsEnabled = true
+	rerunsEnabled = on
 	t.Cleanup(func() { rerunsEnabled = old })
 }
 
 // --- tests ---
 
-func TestRerunsWorkIsOffUntilVerified(t *testing.T) {
-	if RerunsWork || rerunsEnabled {
-		t.Fatal("reruns must stay disabled until Task 0 proves a re-run passes install@v1")
+func TestRerunsWorkVerifiedByTask0(t *testing.T) {
+	if !RerunsWork || !rerunsEnabled {
+		t.Fatal("Task 0 proved a re-run passes install@v1 (2026-11-19); reruns are on")
 	}
 }
 
@@ -424,6 +426,7 @@ func TestMainRunGetsRerun(t *testing.T) {
 }
 
 func TestRerunDisabledReportsOnly(t *testing.T) {
+	setReruns(t, false)
 	f := mainWorld(t, 1)
 	a := only(t, plan(t, f))
 	if a.Kind != KindReport || a.Note != "reruns disabled until verified (Task 0)" || a.PatternID != "network-fetch" {
