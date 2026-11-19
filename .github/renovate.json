@@ -1,0 +1,31 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["github>Mavergreen/shipyard"],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "The darwin Go toolchain pin: a Mavergreen/golang-127 release tag, bare.",
+      "managerFilePatterns": ["/^components/golang/version$/"],
+      "matchStrings": ["^(?<currentValue>\\S+)\\s*$"],
+      "depNameTemplate": "Mavergreen/golang-127",
+      "datasourceTemplate": "github-releases",
+      "versioningTemplate": "regex:^(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)-mavericks\\.(?<build>\\d+)$"
+    },
+    {
+      "customType": "regex",
+      "description": "The Go that builds the Linux binary and the darwin/arm64 slice: upstream Go, bare version.",
+      "managerFilePatterns": ["/^components/go-upstream/version$/"],
+      "matchStrings": ["^(?<currentValue>\\S+)\\s*$"],
+      "depNameTemplate": "go-upstream",
+      "packageNameTemplate": "go",
+      "datasourceTemplate": "golang-version"
+    }
+  ],
+  "packageRules": [
+    {
+      "description": "Not an automerge exception: the family default (ship-if-green) still applies. This only keeps upstream Go on the 1.27 line the darwin toolchain pin is on, so the two Gos never diverge by a minor.",
+      "matchDepNames": ["go-upstream"],
+      "allowedVersions": "<1.28"
+    }
+  ]
+}

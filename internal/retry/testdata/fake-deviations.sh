@@ -1,7 +1,6 @@
 #!/bin/sh
-# spec: stands in for shipyard's flag-day deviations.sh; prints
-# "retryable <scope> <reason>" for every .mavergreen retryable label dir,
-# except labels named omit-*, which it pretends not to accept.
+# platform: host-agnostic
+# spec: internal/retry/declared_test.go -- stands in for shipyard's flag-day deviations.sh, printing retryable lines per label dir but omit-*
 for d in "$1"/.mavergreen/deviations/retryable/*/; do
 	[ -d "$d" ] || continue
 	case "$(basename "$d")" in omit-*) continue ;; esac
