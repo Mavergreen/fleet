@@ -14,6 +14,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -34,7 +36,13 @@ type Options struct {
 	MaxConcurrent int    // default 8
 	Sleep         func(time.Duration)
 	HTTP          *http.Client
+	// Notice, if set, gets one line when a rate-limit backoff is longer
+	// than noticeAfter, so a long wait is never silent.
+	Notice io.Writer
 }
+
+// noticeAfter is the shortest backoff worth telling the user about.
+const noticeAfter = 10 * time.Second
 
 // HTTPError is a non-2xx response. Body is truncated and token-scrubbed.
 type HTTPError struct {
@@ -53,6 +61,11 @@ type client struct {
 	sem   chan struct{}
 	sleep func(time.Duration)
 	hc    *http.Client
+
+	notice    io.Writer
+	noticeMu  sync.Mutex
+	noticed   map[int64]bool // reset times already announced
+	remaining atomic.Int64   // last X-RateLimit-Remaining, -1 if unseen
 }
 
 // New returns a Client authenticating with token.
@@ -69,8 +82,36 @@ func New(token string, o Options) Client {
 	if o.HTTP.CheckRedirect == nil {
 		o.HTTP.CheckRedirect = noDowngrade
 	}
-	return &client{token: token, base: strings.TrimRight(o.BaseURL, "/"),
-		sem: make(chan struct{}, o.MaxConcurrent), sleep: o.Sleep, hc: o.HTTP}
+	c := &client{token: token, base: strings.TrimRight(o.BaseURL, "/"),
+		sem: make(chan struct{}, o.MaxConcurrent), sleep: o.Sleep, hc: o.HTTP,
+		notice: o.Notice, noticed: map[int64]bool{}}
+	c.remaining.Store(-1)
+	return c
+}
+
+// Remaining is the X-RateLimit-Remaining of the last response that had
+// one, or -1 if none has yet.
+func (c *client) Remaining() int { return int(c.remaining.Load()) }
+
+// announce writes the backoff notice, once per minute the wait ends in, so
+// concurrent requests waiting for one reset print one line.
+func (c *client) announce(d time.Duration) {
+	if c.notice == nil || d <= noticeAfter {
+		return
+	}
+	until := time.Now().Add(d)
+	key := until.Truncate(time.Minute).Unix()
+	c.noticeMu.Lock()
+	defer c.noticeMu.Unlock()
+	if c.noticed[key] {
+		return
+	}
+	c.noticed[key] = true
+	mins := int((d + 30*time.Second) / time.Minute)
+	if mins < 1 {
+		mins = 1
+	}
+	fmt.Fprintf(c.notice, "rate limited; waiting %dm until %s (shared GitHub quota)\n", mins, until.Format("15:04"))
 }
 
 // noDowngrade keeps net/http's 10-redirect limit and refuses https -> http.
@@ -126,6 +167,7 @@ func (c *client) do(ctx context.Context, method, fullURL, display string, body [
 		if wait < 0 || attempt == maxAttempts-1 {
 			break
 		}
+		c.announce(wait)
 		if err := c.wait(ctx, wait); err != nil {
 			return nil, nil, err
 		}
@@ -161,6 +203,11 @@ func (c *client) once(ctx context.Context, method, fullURL, display string, body
 		return nil, nil, fmt.Errorf("github: %s %s: %s", method, display, c.scrub(errString(err))), -1
 	}
 	defer resp.Body.Close()
+	if v := resp.Header.Get("X-RateLimit-Remaining"); v != "" {
+		if n, err := strconv.ParseInt(v, 10, 64); err == nil && n >= 0 {
+			c.remaining.Store(n)
+		}
+	}
 	data, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, nil, fmt.Errorf("github: reading %s: %s", display, c.scrub(err.Error())), -1
