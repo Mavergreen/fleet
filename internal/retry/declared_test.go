@@ -195,3 +195,14 @@ func TestSharedScopeOmissionIsAnError(t *testing.T) {
 		t.Fatalf("err %v", err)
 	}
 }
+
+func TestMissingScriptsIsAnErrorOnlyWhenNeeded(t *testing.T) {
+	f := &declFake{routes: map[string]any{}}
+	if ps, err := LoadDeclared(context.Background(), f, "o", "r", ""); err != nil || len(ps) != 0 {
+		t.Fatalf("a repo with no declarations needs no scripts: %v, %v", ps, err)
+	}
+	addLabel(f, "check-6", goodFiles("computer-use server never started\n"))
+	if _, err := LoadDeclared(context.Background(), f, "o", "r", ""); err == nil || !strings.Contains(err.Error(), "shipyard scripts not found") {
+		t.Fatalf("want a not-found error, got %v", err)
+	}
+}

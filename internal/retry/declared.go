@@ -112,6 +112,9 @@ func LoadDeclared(ctx context.Context, c ghapi.Client, org, repo, scripts string
 		}})
 	}
 
+	if scripts == "" {
+		return nil, errors.New("shipyard scripts not found, so the declared deviations cannot be validated")
+	}
 	out, err := exec.CommandContext(ctx, "sh", filepath.Join(scripts, "deviations.sh"), tmp).Output()
 	if err != nil {
 		var ee *exec.ExitError

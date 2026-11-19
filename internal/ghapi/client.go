@@ -176,6 +176,12 @@ func (c *client) once(ctx context.Context, method, fullURL, display string, body
 	if !retryable(resp, text) {
 		return nil, nil, herr, -1
 	}
+	// A write answered 5xx may still have taken effect (a 502 after the
+	// comment was created): retrying it could duplicate the write. 429 and
+	// rate-limit 403s are refusals, so those writes are safe to retry.
+	if method != http.MethodGet && resp.StatusCode >= 500 {
+		return nil, nil, herr, -1
+	}
 	return nil, nil, herr, backoff(resp.Header, attempt)
 }
 

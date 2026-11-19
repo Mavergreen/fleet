@@ -390,3 +390,50 @@ func TestRedirectDowngradeRefused(t *testing.T) {
 		t.Fatalf("err=%v hit=%d", err, hit)
 	}
 }
+
+// A 5xx on a write may still have taken effect (a 502 after the comment was
+// created), so writes are never retried on 5xx.
+func TestPostNotRetriedOn5xx(t *testing.T) {
+	for _, status := range []int{500, 502, 503, 504} {
+		var n int32
+		c := newTest(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			atomic.AddInt32(&n, 1)
+			w.WriteHeader(status)
+		}), &sleeps{})
+		err := c.Post(context.Background(), "/x", map[string]string{"body": "b"}, nil)
+		var he *HTTPError
+		if !errors.As(err, &he) || he.Status != status || n != 1 {
+			t.Errorf("POST %d: err=%v attempts=%d", status, err, n)
+		}
+		n = 0
+		err = c.Patch(context.Background(), "/x", map[string]string{"body": "b"}, nil)
+		if !errors.As(err, &he) || he.Status != status || n != 1 {
+			t.Errorf("PATCH %d: err=%v attempts=%d", status, err, n)
+		}
+	}
+}
+
+// 429 and secondary-rate-limit 403 are refused before any effect, so a write
+// may be retried.
+func TestPostRetriedOn429(t *testing.T) {
+	for _, refuse := range []func(w http.ResponseWriter){
+		func(w http.ResponseWriter) { w.WriteHeader(429) },
+		func(w http.ResponseWriter) {
+			w.WriteHeader(403)
+			fmt.Fprint(w, `{"message":"You have exceeded a secondary rate limit"}`)
+		},
+	} {
+		var n int32
+		s := &sleeps{}
+		c := newTest(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if atomic.AddInt32(&n, 1) == 1 {
+				refuse(w)
+				return
+			}
+			fmt.Fprint(w, `{}`)
+		}), s)
+		if err := c.Post(context.Background(), "/x", map[string]string{"body": "b"}, nil); err != nil || n != 2 || len(s.d) != 1 {
+			t.Fatalf("err=%v attempts=%d sleeps=%v", err, n, s.d)
+		}
+	}
+}

@@ -47,6 +47,9 @@ type Thread struct {
 	IsPR          bool
 }
 
+// Age formats a duration the way findings do.
+func Age(d time.Duration) string { return age(d) }
+
 // age: <n>d at >= 48h, else <n>h, else <n>m.
 func age(d time.Duration) string {
 	switch {

@@ -64,33 +64,54 @@ var markerRe = regexp.MustCompile(`<!-- fleet-retry (\S+)([^>]*?)-->`)
 func CountRetries(commentBodies []string, update string) int {
 	n := 0
 	for _, body := range commentBodies {
-		for _, m := range markerRe.FindAllStringSubmatch(body, -1) {
-			if m[1] != "v1" {
-				continue
-			}
-			var upd string
-			var haveUpd, haveAttempt bool
-			for _, f := range strings.Fields(m[2]) {
-				k, v, ok := strings.Cut(f, "=")
-				if !ok {
-					continue
-				}
-				switch k {
-				case "update":
-					u, err := url.QueryUnescape(v)
-					if err == nil {
-						upd, haveUpd = u, true
-					}
-				case "attempt":
-					if a, err := strconv.Atoi(v); err == nil && a >= 1 && v[0] != '+' {
-						haveAttempt = true
-					}
-				}
-			}
-			if haveUpd && haveAttempt && upd == update {
+		for _, m := range markers(body) {
+			if m.update == update {
 				n++
 			}
 		}
 	}
 	return n
+}
+
+// marker is one well-formed v1 fleet-retry marker.
+type marker struct {
+	update, pattern string
+	attempt         int
+}
+
+// markers returns the well-formed v1 markers in body, in order.
+func markers(body string) []marker {
+	var out []marker
+	for _, m := range markerRe.FindAllStringSubmatch(body, -1) {
+		if m[1] != "v1" {
+			continue
+		}
+		var mk marker
+		var haveUpd, haveAttempt bool
+		for _, f := range strings.Fields(m[2]) {
+			k, v, ok := strings.Cut(f, "=")
+			if !ok {
+				continue
+			}
+			switch k {
+			case "update":
+				u, err := url.QueryUnescape(v)
+				if err == nil {
+					mk.update, haveUpd = u, true
+				}
+			case "attempt":
+				if a, err := strconv.Atoi(v); err == nil && a >= 1 && v[0] != '+' {
+					mk.attempt, haveAttempt = a, true
+				}
+			case "pattern":
+				if p, err := url.QueryUnescape(v); err == nil {
+					mk.pattern = p
+				}
+			}
+		}
+		if haveUpd && haveAttempt {
+			out = append(out, mk)
+		}
+	}
+	return out
 }
