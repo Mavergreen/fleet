@@ -1,0 +1,31 @@
+{
+  "schema": "fleet/v1",
+  "command": "attention",
+  "generated": "2026-11-19T09:00:00Z",
+  "checked": {
+    "repos": 1,
+    "prs": 2,
+    "issues": 3,
+    "runs": 4
+  },
+  "findings": [
+    {
+      "repo": "a",
+      "item": "#1",
+      "url": "u1",
+      "kind": "retry-in-progress",
+      "since": "2026-11-01T12:00:00Z",
+      "why": "w1",
+      "fix": "f1"
+    },
+    {
+      "repo": "b",
+      "item": "#2",
+      "url": "u2",
+      "kind": "needs-reply",
+      "since": "2026-11-01T12:00:00Z",
+      "why": "w2",
+      "fix": "f2"
+    }
+  ]
+}
