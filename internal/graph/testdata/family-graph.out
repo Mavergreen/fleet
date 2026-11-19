@@ -1,0 +1,25 @@
+claude-code -> drydock
+cmake -> clang-22
+ed25519 -> clang-22
+fd -> rust
+icu -> clang-22
+iterm2 -> clang-22
+iterm2 -> recaulk
+jdk-25 -> ca-certs
+jdk-25 -> clang-22
+jdk-25 -> recaulk
+make -> clang-22
+ninja -> clang-22
+python-315 -> clang-22
+python-315 -> recaulk
+recaulk -> drydock
+rg -> rust
+rust -> make
+rust -> recaulk
+wezterm -> clang-22
+wezterm -> make
+wezterm -> rust
+zig -> recaulk
+DIAMOND wezterm: clang-22 via make
+DIAMOND wezterm: clang-22 via rust
+DIAMOND wezterm: make via rust

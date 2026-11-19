@@ -1,0 +1,15 @@
+graph LR
+  n0["a"]
+  n1["b"]
+  n2["clang-22"]
+  n3["cmake"]
+  n4["make"]
+  n5["rust"]
+  n6["wezterm"]
+  n0 --> n1
+  n1 --> n0
+  n3 --> n2
+  n5 --> n2
+  n5 --> n4
+  n6 --> n5
+%% propagation timings: not yet available (needs family-graph.sh to print pin paths; queued in shipyard)

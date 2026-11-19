@@ -1,0 +1,8 @@
+cmake -> clang-22
+rust -> clang-22
+rust -> make
+wezterm -> rust
+a -> b
+b -> a
+DIAMOND wezterm: clang-22 via rust
+CYCLE a -> b -> a

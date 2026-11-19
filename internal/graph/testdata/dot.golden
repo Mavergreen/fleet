@@ -1,0 +1,9 @@
+digraph family {
+  "a" -> "b";
+  "b" -> "a";
+  "cmake" -> "clang-22";
+  "rust" -> "clang-22";
+  "rust" -> "make";
+  "wezterm" -> "rust";
+}
+// propagation timings: not yet available (needs family-graph.sh to print pin paths; queued in shipyard)
