@@ -1,0 +1,261 @@
+name: release
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      local_release:
+        description: "Publish a packaging-only .N+1 even though this declared state is released"
+        type: boolean
+        default: false
+      reconcile:
+        description: "Set by the nightly reconcile backstop"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+# spec: shipyard SKILL.md "Release workflow" -- a run that can publish is alone in its group
+concurrency:
+  group: >-
+    release-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 60
+    outputs:
+      ver: ${{ steps.ver.outputs.ver }}
+      publish: ${{ steps.ver.outputs.publish }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install mavericks-shipyard
+        uses: Mavergreen/shipyard/.github/actions/install@v1
+
+      - name: Build out of tree
+        run: |
+          echo "MAVERICKS_BUILD_ROOT=$RUNNER_TEMP/mm-build" >> "$GITHUB_ENV"
+          echo "DIST=$RUNNER_TEMP/dist" >> "$GITHUB_ENV"
+
+      - name: Record the pre-build tree
+        run: sh "$SHIPYARD_SCRIPTS/assert-tree-clean.sh" --record
+
+      # spec: INGREDIENTS.md "Declared state" -- a push to main publishes exactly when release-needed.sh
+      #       finds no release carrying this declared state; shipyard SKILL.md "Versioning" -- fleet is its
+      #       own upstream, so the version is the derived YYYYMMDD.N
+      - name: Version (YYYYMMDD.N) + publish decision
+        id: ver
+        env:
+          LOCAL_RELEASE: ${{ inputs.local_release }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          ver="$(sh "$SHIPYARD_SCRIPTS/self-upstream-version.sh")"
+          pub=no
+          if [ "$GITHUB_REF" = refs/heads/main ]; then
+            if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ] || [ "$GITHUB_EVENT_NAME" = push ]; then
+              if [ "$LOCAL_RELEASE" = true ]; then
+                pub=yes
+              else
+                digest="$(sh "$SHIPYARD_SCRIPTS/release-state.sh")"
+                answer="$(sh "$SHIPYARD_SCRIPTS/release-needed.sh" --digest "$digest" --version "$ver")"
+                echo "release-needed: $answer"
+                if [ "$answer" = PUBLISH ]; then pub=yes; fi
+              fi
+            fi
+          fi
+          { echo "ver=$ver"; echo "publish=$pub"; } >> "$GITHUB_OUTPUT"
+          echo "version=$ver publish=$pub"
+
+      - name: Install the golang-127 cross toolchain
+        run: |
+          set -eu
+          . "$SHIPYARD_SCRIPTS/mavericks_fetch.sh"
+          ver="$(tr -d '[:space:]' < components/golang/version)"
+          gover="${ver%%-mavericks.*}"; rev="${ver#*-}"
+          line="$(printf '%s' "$gover" | cut -d. -f1,2 | tr -d .)"
+          base="https://github.com/Mavergreen/golang-${line}/releases/download/${ver}"
+          sums="$RUNNER_TEMP/SHA256SUMS"
+          shipyard_curl "$base/SHA256SUMS" "$sums"
+          cand="golang-${gover}-cross-${rev}.pkg"
+          hash="$(awk -v f="$cand" '$2==f {print $1}' "$sums")"
+          [ -n "$hash" ] || { echo "::error::no $cand in golang-${line} ${ver} SHA256SUMS"; exit 1; }
+          shipyard_fetch_verified "$base/$cand" "$hash" "$RUNNER_TEMP" "$cand"
+          sudo installer -pkg "$RUNNER_TEMP/$cand" -target /
+          echo "GO_DARWIN=/usr/local/mavergreen/go${line}-cross/bin/go" >> "$GITHUB_ENV"
+
+      - name: Fetch clang22, for lipo and the Mach-O readers
+        run: |
+          set -eu
+          cl="$(sh "$SHIPYARD_SCRIPTS/fetch_clang22.sh" components/clang22)"
+          { echo "LIPO=$cl/bin/llvm-lipo"; echo "OTOOL=$cl/bin/llvm-otool"
+            echo "NM=$cl/bin/llvm-nm"; echo "STRINGS=$cl/bin/llvm-strings"; } >> "$GITHUB_ENV"
+
+      - name: Fetch upstream Go
+        run: |
+          set -eu
+          go="$(sh build/fetch-go.sh "$(tr -d '[:space:]' < components/go-upstream/version)" darwin-arm64 "$RUNNER_TEMP/go-upstream")"
+          echo "GO_UPSTREAM=$go" >> "$GITHUB_ENV"
+
+      - name: Vet and test with upstream Go
+        env:
+          GOTOOLCHAIN: local
+        run: |
+          set -eu
+          "$GO_UPSTREAM" vet ./...
+          "$GO_UPSTREAM" test -count=1 ./...
+
+      - name: Build the universal darwin binary and the Linux binary, then the compat guard
+        env:
+          VER: ${{ steps.ver.outputs.ver }}
+        run: |
+          set -eu
+          sh build/build-universal.sh "$GO_DARWIN" "$GO_UPSTREAM" "$MAVERICKS_BUILD_ROOT/fleet-darwin" "$VER"
+          sh build/build-fleet.sh "$GO_UPSTREAM" linux amd64 "$MAVERICKS_BUILD_ROOT/fleet-linux" "$VER"
+          # spec: mavergreen-gh INGREDIENTS.md -- golang-127's runtime calls clock_gettime, which 10.9's
+          #   libSystem lacks and Recaulk provides: requiring it DEFINED proves that shim was linked.
+          MAVERICKS_ALLOW_ARCHS="x86_64" MAVERICKS_DEVIATIONS_ROOT="$PWD" \
+            MAVERICKS_REQUIRE_DEFINED_SYMBOLS="_clock_gettime" \
+            sh "$SHIPYARD_SCRIPTS/assert_binary_compatible.sh" "$MAVERICKS_BUILD_ROOT/fleet-darwin/amd64/mavergreen-fleet"
+
+      - name: Package the .pkg and the Linux tarball
+        env:
+          VER: ${{ steps.ver.outputs.ver }}
+        run: |
+          set -eu
+          sh build/package.sh "$VER" "$MAVERICKS_BUILD_ROOT/fleet-darwin/mavergreen-fleet" "$DIST" "$MAVERICKS_BUILD_ROOT/fleet-linux/mavergreen-fleet"
+          rm -rf "$DIST/stage"
+
+      - name: Run the repo's tests
+        run: sh "$SHIPYARD_SCRIPTS/run-repo-tests.sh"
+
+      - name: Release notes, with the declared state recorded
+        env:
+          VER: ${{ steps.ver.outputs.ver }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          sh "$SHIPYARD_SCRIPTS/release-notes.sh" --tag "$VER" --version "$VER" \
+            --product Fleet --min-os 10.9.5 --out "$DIST/RELEASE_NOTES.md"
+          digest="$(sh "$SHIPYARD_SCRIPTS/release-state.sh")"
+          sh "$SHIPYARD_SCRIPTS/release-state-record.sh" --notes-file "$DIST/RELEASE_NOTES.md" --digest "$digest"
+
+      - name: Artifact conformance
+        env:
+          VER: ${{ steps.ver.outputs.ver }}
+        run: |
+          set -eu
+          facts="$(sh "$SHIPYARD_SCRIPTS/artifact-facts.sh" "$DIST" "$VER")"
+          printf '%s\n' "$facts" | sh "$SHIPYARD_SCRIPTS/check-artifact-conformance.sh"
+
+      - name: The build must not have written into the source tree
+        run: sh "$SHIPYARD_SCRIPTS/assert-tree-clean.sh"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: fleet
+          if-no-files-found: error
+          path: |
+            ${{ env.DIST }}/*.pkg
+            ${{ env.DIST }}/*.tar.gz
+            ${{ env.DIST }}/build-info.txt
+            ${{ env.DIST }}/RELEASE_NOTES.md
+
+  # spec: shipyard check 29 -- this run's own pkg, installed on Mac OS X 10.9 and run there before publish
+  # platform: mavericks-vm boots its 10.9 guest under KVM on a Linux runner, so this job spends no macOS
+  #           runner; packages: write is the guest image's, which mavericks-vm pulls from GHCR
+  on-mavericks:
+    needs: [build]
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v8
+        with:
+          name: fleet
+          path: dist
+      - name: Install the pkg on Mac OS X 10.9 and run the smoke test
+        uses: Mavergreen/mavericks-vm@v1
+        env:
+          FLEET_VERSION_UNDER_TEST: ${{ needs.build.outputs.ver }}
+        with:
+          image-key: ${{ secrets.MAVERICKS_VM_KEY }}
+          envs: FLEET_VERSION_UNDER_TEST
+          copyback: false
+          debug-on-error: true
+          run: |
+            set -eu
+            sw_vers
+            sudo -n true || { echo "the guest's user cannot sudo without a password, and installer needs root"; exit 1; }
+            sudo installer -pkg "dist/fleet-$FLEET_VERSION_UNDER_TEST.pkg" -target /
+            /usr/local/bin/mavergreen check
+            rc=0
+            sh tests/smoke-mavericks.sh || rc=$?
+            [ "$rc" -eq 0 ] || { echo "smoke-mavericks.sh exited $rc (77 is a skip, a failure here)"; exit 1; }
+
+  # spec: shipyard check 37 -- the universal binary's arm64 slice, installed and run on current macOS
+  modern-smoke:
+    needs: [build]
+    runs-on: macos-26
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v8
+        with:
+          name: fleet
+          path: dist
+      - name: Install the pkg and run its arm64 slice
+        env:
+          FLEET_VERSION_UNDER_TEST: ${{ needs.build.outputs.ver }}
+        run: |
+          set -eu
+          [ "$(uname -m)" = arm64 ] && [ "$(arch)" = arm64 ] || { echo "::error::this runner is not running arm64 natively"; exit 1; }
+          sudo installer -pkg "dist/fleet-$FLEET_VERSION_UNDER_TEST.pkg" -target /
+          /usr/local/mavergreen/fleet/bin/mavergreen-fleet --version
+          rc=0
+          sh tests/smoke-mavericks.sh || rc=$?
+          [ "$rc" -eq 0 ] || { echo "::error::smoke-mavericks.sh exited $rc (77 is a skip, a failure here)"; exit 1; }
+
+  publish:
+    needs: [build, on-mavericks, modern-smoke]
+    if: needs.build.outputs.publish == 'yes'
+    permissions:
+      contents: write
+    uses: Mavergreen/shipyard/.github/workflows/publish-release.yml@v1
+    with:
+      version: ${{ needs.build.outputs.ver }}
+      artifact: fleet
+
+  retry:
+    needs: [build, publish]
+    if: always() && needs.publish.result == 'failure'
+    permissions: { contents: read, actions: write }
+    uses: Mavergreen/shipyard/.github/workflows/retry-release.yml@v1
+    with: { version: "${{ needs.build.outputs.ver }}" }
+
+  required:
+    name: required (release)
+    if: always()
+    needs: [build, on-mavericks, modern-smoke, publish, retry]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: Mavergreen/shipyard/.github/actions/required-gate@v1
+        with:
+          needs: ${{ toJSON(needs) }}

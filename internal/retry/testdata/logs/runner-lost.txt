@@ -1,0 +1,5 @@
+build-native	UNKNOWN STEP	2026-11-12T23:52:46.7661870Z Building rustc stage2 (aarch64-apple-darwin)
+build-native	UNKNOWN STEP	2026-11-13T01:12:03.1180920Z    Compiling syn v2.0.110
+build-native	UNKNOWN STEP	2026-11-13T01:12:05.4412300Z    Compiling serde_derive v1.0.228
+build-native	UNKNOWN STEP	2026-11-13T01:14:41.9023310Z ##[error]The hosted runner lost communication with the server. Anything in your workflow that terminates the runner process, starves it for CPU/Memory, or blocks its network access can cause this error.
+build-native	UNKNOWN STEP	2026-11-13T01:14:42.0035120Z ##[error]The operation was canceled.

@@ -1,0 +1,1 @@
+{"total_count":2,"check_runs":[{"name":"ci","check_suite":{"id":5},"status":"completed","conclusion":"action_required","started_at":"2026-11-03T09:00:00Z","completed_at":"2026-11-03T10:00:00Z"},{"status":"completed","conclusion":"success","started_at":"2026-11-03T09:00:00Z","completed_at":"2026-11-03T09:30:00Z"}]}

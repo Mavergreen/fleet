@@ -1,0 +1,19 @@
+a
+└─ b
+   └─ a (see above)
+b (see above)
+cmake
+└─ clang-22
+rust
+├─ clang-22
+└─ make
+wezterm
+└─ rust (see above)
+
+diamonds:
+  DIAMOND wezterm: clang-22 via rust
+
+cycles:
+  CYCLE a -> b -> a
+
+propagation timings: not yet available (needs family-graph.sh to print pin paths; queued in shipyard)

@@ -1,0 +1,2 @@
+[{"number":43,"html_url":"https://github.com/Mavergreen/rust/pull/43","body":"bump","created_at":"2026-11-02T08:00:00Z","user":{"login":"renovate[bot]","type":"Bot"},"head":{"ref":"renovate/serde-1.x","sha":"sha43"}},
+{"number":44,"html_url":"https://github.com/Mavergreen/rust/pull/44","body":"bump","created_at":"2026-11-19T05:00:00Z","user":{"login":"renovate[bot]","type":"Bot"},"head":{"ref":"renovate/tokio-1.x","sha":"sha44"}}]

@@ -1,0 +1,49 @@
+digraph family {
+  "claude-code" -> "drydock";
+  "cmake" -> "clang-22";
+  "ed25519" -> "clang-22";
+  "fd" -> "rust";
+  "icu" -> "clang-22";
+  "iterm2" -> "clang-22";
+  "iterm2" -> "recaulk";
+  "jdk-25" -> "ca-certs";
+  "jdk-25" -> "clang-22";
+  "jdk-25" -> "recaulk";
+  "make" -> "clang-22";
+  "ninja" -> "clang-22";
+  "python-315" -> "clang-22";
+  "python-315" -> "recaulk";
+  "recaulk" -> "drydock";
+  "rg" -> "rust";
+  "rust" -> "make";
+  "rust" -> "recaulk";
+  "wezterm" -> "clang-22";
+  "wezterm" -> "make";
+  "wezterm" -> "rust";
+  "zig" -> "recaulk";
+}
+// cannot read: UNMAPPED ca-certs: withdrawn
+// cannot read: UNMAPPED ca-certs: aquatransport-roots
+// cannot read: UNMAPPED ca-certs: blocked
+// cannot read: UNMAPPED gh: golang
+// cannot read: UNMAPPED iterm2: source
+// cannot read: UNMAPPED iterm2: resources
+// cannot read: UNMAPPED jdk-25: jdk-source
+// cannot read: UNMAPPED jdk-25: bootjdk
+// cannot read: UNMAPPED jdk-25: pandoc
+// cannot read: UNMAPPED jdk-25: autoconf
+// cannot read: UNMAPPED jdk-25: m4
+// cannot read: UNMAPPED longboat: shipyard-scripts
+// cannot read: UNMAPPED longboat: golang
+// cannot read: UNMAPPED longboat: installesd-pin
+// cannot read: UNMAPPED longboat: snowleopard-pins
+// cannot read: UNMAPPED ninja: ninja-source
+// cannot read: SKIP nodejs-24: no clone in DIR
+// cannot read: UNMAPPED python-315: sqlite
+// cannot read: UNMAPPED python-315: xz
+// cannot read: UNMAPPED python-315: zstd
+// cannot read: UNMAPPED recaulk: macports-legacy-support
+// cannot read: UNMAPPED rust: clang
+// cannot read: SKIP stevedore: no clone in DIR
+// cannot read: UNMAPPED zig: clang
+// propagation timings: not yet available (needs family-graph.sh to print pin paths; queued in shipyard)

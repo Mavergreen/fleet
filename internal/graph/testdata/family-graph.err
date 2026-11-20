@@ -1,0 +1,24 @@
+UNMAPPED ca-certs: withdrawn
+UNMAPPED ca-certs: aquatransport-roots
+UNMAPPED ca-certs: blocked
+UNMAPPED gh: golang
+UNMAPPED iterm2: source
+UNMAPPED iterm2: resources
+UNMAPPED jdk-25: jdk-source
+UNMAPPED jdk-25: bootjdk
+UNMAPPED jdk-25: pandoc
+UNMAPPED jdk-25: autoconf
+UNMAPPED jdk-25: m4
+UNMAPPED longboat: shipyard-scripts
+UNMAPPED longboat: golang
+UNMAPPED longboat: installesd-pin
+UNMAPPED longboat: snowleopard-pins
+UNMAPPED ninja: ninja-source
+SKIP nodejs-24: no clone in DIR
+UNMAPPED python-315: sqlite
+UNMAPPED python-315: xz
+UNMAPPED python-315: zstd
+UNMAPPED recaulk: macports-legacy-support
+UNMAPPED rust: clang
+SKIP stevedore: no clone in DIR
+UNMAPPED zig: clang

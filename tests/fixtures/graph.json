@@ -1,0 +1,29 @@
+{
+  "schema": "fleet/v1",
+  "command": "graph",
+  "generated": "NORMALISED",
+  "edges": [
+    {
+      "consumer": "cmake",
+      "ingredient": "clang-22"
+    },
+    {
+      "consumer": "rust",
+      "ingredient": "clang-22"
+    },
+    {
+      "consumer": "rust",
+      "ingredient": "make"
+    },
+    {
+      "consumer": "wezterm",
+      "ingredient": "rust"
+    }
+  ],
+  "diamonds": [
+    "DIAMOND wezterm: clang-22 via rust"
+  ],
+  "cycles": [],
+  "incomplete": [],
+  "timings": "not yet available (needs family-graph.sh to print pin paths; queued in shipyard)"
+}
