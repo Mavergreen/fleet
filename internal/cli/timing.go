@@ -16,7 +16,10 @@ import (
 	"github.com/Mavergreen/fleet/internal/timing"
 )
 
-const timingUsage = "usage: mavergreen-fleet [--json] timing [--since YYYY-MM-DD|7d|48h] [--force] [repo [run-id]]"
+const (
+	timingArgs  = "timing [--since YYYY-MM-DD|7d|48h] [--force] [repo [run-id]]"
+	timingUsage = usagePrefix + timingArgs
+)
 
 // quotaReserve is how much of the shared hourly quota timing leaves for
 // everything else (other agents, remediate) unless --force.

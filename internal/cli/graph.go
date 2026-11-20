@@ -15,7 +15,10 @@ import (
 	"github.com/Mavergreen/fleet/internal/shipyard"
 )
 
-const graphUsage = "usage: mavergreen-fleet [--json] graph [--dot | --mermaid] [--from-dir DIR]"
+const (
+	graphArgs  = "graph [--dot | --mermaid] [--from-dir DIR]"
+	graphUsage = usagePrefix + graphArgs
+)
 
 const timingsJSON = "not yet available (needs family-graph.sh to print pin paths; queued in shipyard)"
 

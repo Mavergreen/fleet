@@ -32,23 +32,47 @@ type Env struct {
 	Version string
 }
 
-// Command is a registered subcommand.
+// Command is a registered subcommand. Usage is its synopsis after
+// "mavergreen-fleet [--json] ", starting with Name; Summary is one line.
 type Command struct {
-	Name string
-	Run  func(ctx context.Context, e Env, args []string, asJSON bool) int
+	Name    string
+	Usage   string
+	Summary string
+	Run     func(ctx context.Context, e Env, args []string, asJSON bool) int
 }
 
-const defaultCommand = "attention"
+const (
+	usagePrefix    = "usage: mavergreen-fleet [--json] "
+	remediateUsage = "remediate [--dry-run]"
+)
 
-// commands is the production registry; later tasks add to it.
+// commands is the production registry, in the order help lists them.
 func commands() []Command {
 	return []Command{
-		{Name: "attention", Run: runAttention},
-		{Name: "graph", Run: runGraph},
-		{Name: "remediate", Run: runRemediate},
-		{Name: "timing", Run: runTiming},
+		{Name: "attention", Usage: "attention", Summary: "what needs a human, most urgent first", Run: runAttention},
+		{Name: "remediate", Usage: remediateUsage, Summary: "retry failures known to be transient", Run: runRemediate},
+		{Name: "timing", Usage: timingArgs, Summary: "where Actions time goes", Run: runTiming},
+		{Name: "graph", Usage: graphArgs, Summary: "which repos build on which", Run: runGraph},
 	}
 }
+
+// help writes the overview: every command's name and summary, aligned.
+// Each command's full usage is under `<command> --help`.
+func help(w io.Writer, cmds []Command) {
+	width := 0
+	for _, c := range cmds {
+		if len(c.Name) > width {
+			width = len(c.Name)
+		}
+	}
+	fmt.Fprintf(w, "%s<command> [args]\n       mavergreen-fleet --version\n\nCommands:\n", usagePrefix)
+	for _, c := range cmds {
+		fmt.Fprintf(w, "  %-*s  %s\n", width, c.Name, c.Summary)
+	}
+	fmt.Fprint(w, "\nEvery command takes --json. Run mavergreen-fleet <command> --help for one command.\nSee: man mavergreen-fleet\n")
+}
+
+func isHelp(a string) bool { return a == "--help" || a == "-h" }
 
 // Run executes the CLI with the production command set and returns the exit code.
 func Run(args []string, e Env) int {
@@ -69,16 +93,25 @@ func run(args []string, e Env, cmds []Command) int {
 			rest = append(rest, a)
 		}
 	}
-	name := defaultCommand
-	if len(rest) > 0 {
-		name, rest = rest[0], rest[1:]
+	if len(rest) == 0 || isHelp(rest[0]) || rest[0] == "help" {
+		help(e.Stdout, cmds)
+		return 0
 	}
+	name, rest := rest[0], rest[1:]
 	for _, c := range cmds {
-		if c.Name == name {
-			return c.Run(context.Background(), e, rest, asJSON)
+		if c.Name != name {
+			continue
 		}
+		for _, a := range rest {
+			if isHelp(a) {
+				fmt.Fprintf(e.Stdout, "%s%s\n%s\nSee: man mavergreen-fleet\n", usagePrefix, c.Usage, c.Summary)
+				return 0
+			}
+		}
+		return c.Run(context.Background(), e, rest, asJSON)
 	}
-	fmt.Fprintf(e.Stderr, "mavergreen-fleet: unknown command %q\nusage: mavergreen-fleet [--json] [--version] [command] [args]\n", name)
+	fmt.Fprintf(e.Stderr, "mavergreen-fleet: unknown command %q\n", name)
+	help(e.Stderr, cmds)
 	return 2
 }
 
@@ -164,7 +197,7 @@ func runRemediate(ctx context.Context, e Env, args []string, asJSON bool) int {
 	dry := false
 	for _, a := range args {
 		if a != "--dry-run" {
-			fmt.Fprintf(e.Stderr, "mavergreen-fleet: remediate: unknown argument %q\nusage: mavergreen-fleet [--json] remediate [--dry-run]\n", a)
+			fmt.Fprintf(e.Stderr, "mavergreen-fleet: remediate: unknown argument %q\n%s%s\n", a, usagePrefix, remediateUsage)
 			return 2
 		}
 		dry = true

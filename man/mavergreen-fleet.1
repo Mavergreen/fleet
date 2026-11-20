@@ -6,8 +6,10 @@
 .Nd what needs a human across the Mavergreen family, and retries for transient failures
 .Sh SYNOPSIS
 .Nm
+.Op Fl -help
+.Nm
+.Cm attention
 .Op Fl -json
-.Op Cm attention
 .Nm
 .Cm remediate
 .Op Fl -dry-run
@@ -37,7 +39,6 @@ Piped, it is never truncated.
 .Sh COMMANDS
 .Bl -tag -width Ds
 .It Cm attention
-The default.
 Lists what needs a human, most urgent first: stuck pull requests, red workflows,
 issues waiting for a reply, retries in progress, and anything it could not read.
 Each finding ends with what to do about it.
@@ -72,6 +73,14 @@ How long a change takes to flow along it is not shown yet.
 .El
 .Sh OPTIONS
 .Bl -tag -width Ds
+.It Fl -help , Fl h
+With no command, or as
+.Cm help ,
+list the commands.
+After a command, print that command's usage.
+.Nm
+alone does the same as
+.Fl -help .
 .It Fl -json
 Print one JSON object on stdout instead of text; see
 .Sx JSON OUTPUT .
@@ -83,7 +92,10 @@ only: change nothing.
 only: the start of the window, as a date
 .Pq Ql 2026-11-01
 or a duration back from now
-.Pq Ql 7d , Ql 48h .
+.Po
+.Ql 7d ,
+.Ql 48h
+.Pc .
 Default:
 .Ql 7d .
 .It Fl -force
@@ -283,7 +295,7 @@ or run id.
 .El
 .Sh EXAMPLES
 See what needs attention:
-.Dl $ mavergreen-fleet
+.Dl $ mavergreen-fleet attention
 .Pp
 See what remediate would retry, then retry it:
 .Dl $ mavergreen-fleet remediate --dry-run
