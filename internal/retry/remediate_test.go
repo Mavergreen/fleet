@@ -43,7 +43,7 @@ type remFake struct {
 func newFake(t *testing.T) *remFake {
 	return &remFake{t: t, fail: map[string]error{}, routes: map[string]any{
 		"/user":                                  map[string]any{"login": me},
-		"/orgs/o/repos?type=public&per_page=100": []any{map[string]any{"name": "r"}},
+		"/orgs/o/repos?type=public&per_page=100": []any{map[string]any{"name": "r", "permissions": map[string]any{"push": true}}},
 		"/repos/o/r/pulls?state=open":            []any{},
 		"/repos/o/r/actions/workflows":           map[string]any{"workflows": []any{}},
 		"/repos/o/r/contents/" + declaredPath:    &ghapi.HTTPError{Status: 404, Path: "contents"},
@@ -448,6 +448,49 @@ func TestRerun403SuggestsCutRelease(t *testing.T) {
 	r := Apply(context.Background(), f, a, false)
 	if r.Done || r.Note != "re-dispatch with cut-release.sh" || r.Action.Kind != KindReport {
 		t.Fatalf("result %+v", r)
+	}
+}
+
+func TestRerun403ForAnotherReasonShowsGitHubsMessage(t *testing.T) {
+	enableReruns(t)
+	f := mainWorld(t, 1)
+	f.fail["/repos/o/r/actions/runs/700/rerun-failed-jobs"] = &ghapi.HTTPError{Status: 403, Path: "rerun",
+		Body: `{"message":"Resource not accessible by personal access token"}`}
+	a := only(t, plan(t, f))
+	r := Apply(context.Background(), f, a, false)
+	if r.Done || r.Note != "re-run refused by GitHub" || r.Err == nil ||
+		!strings.Contains(r.Err.Error(), "Resource not accessible") {
+		t.Fatalf("result %+v", r)
+	}
+}
+
+func readOnly(f *remFake) {
+	f.routes["/orgs/o/repos?type=public&per_page=100"] = []any{
+		map[string]any{"name": "r", "permissions": map[string]any{"pull": true, "push": false}}}
+}
+
+func TestRemediateWithoutWriteAccessWritesNothing(t *testing.T) {
+	enableReruns(t)
+	for name, world := range map[string]func(*testing.T) *remFake{
+		"renovate": renovateWorld,
+		"main":     func(t *testing.T) *remFake { return mainWorld(t, 1) },
+	} {
+		for _, dry := range []bool{false, true} {
+			f := world(t)
+			readOnly(f)
+			results, _, err := Remediate(context.Background(), f, "o", t.TempDir(), now, dry)
+			if err != nil || len(results) != 1 {
+				t.Fatalf("%s dry=%v: %v %+v", name, dry, err, results)
+			}
+			r := results[0]
+			if r.Done || r.Action.Kind != KindReport || r.Note != "not attempted: your token cannot write to o/r" ||
+				r.Err == nil || !strings.Contains(r.Err.Error(), "gh auth login") {
+				t.Fatalf("%s dry=%v: result %+v", name, dry, r)
+			}
+			if w := f.allWrites(); len(w) != 0 {
+				t.Fatalf("%s dry=%v: wrote %+v", name, dry, w)
+			}
+		}
 	}
 }
 

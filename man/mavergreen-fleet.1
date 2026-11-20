@@ -51,6 +51,7 @@ For a run on
 or a scheduled run, it re-runs the failed jobs.
 Every other failure is reported, not retried.
 It never merges, cancels or deletes anything.
+In a repo the token cannot write to, it writes nothing and reports that instead.
 .Fl -dry-run
 says what it would do and changes nothing.
 .It Cm timing Op Ar repo Op Ar run-id
@@ -282,7 +283,7 @@ or
 An error.
 Any command: no token; the organization's repos or the token's user could not be read; output could not be written.
 .Cm remediate :
-a write failed, or a read it needed just before writing failed (something unread while planning is a report, exit 0).
+the token cannot write to a repo it would retry in, a write failed, or a read it needed just before writing failed (something unread while planning is a report, exit 0).
 .Cm timing :
 the repo or run asked for cannot be read; the quota check stopped it; or, as text only, it read no runs and something could not be read.
 .Cm graph :

@@ -95,15 +95,37 @@ func Plan(ctx context.Context, c ghapi.Client, org string, scripts string, now t
 // Apply gets c itself, since its guard against a concurrent remediate is
 // that it re-reads fresh state.
 func Remediate(ctx context.Context, c ghapi.Client, org, scripts string, now time.Time, dryRun bool) ([]Result, int, error) {
-	actions, n, err := planOrg(ctx, ghapi.NewMemo(c), org, scripts, now)
+	m := ghapi.NewMemo(c)
+	actions, n, err := planOrg(ctx, m, org, scripts, now)
+	if err != nil {
+		return nil, 0, err
+	}
+	writable, err := attention.Writable(ctx, m, org)
 	if err != nil {
 		return nil, 0, err
 	}
 	results := make([]Result, len(actions))
 	for i, a := range actions {
+		if (a.Kind == KindTickBox || a.Kind == KindRerun) && !writable[a.Repo] {
+			// Checked before the first write, so a read-only token leaves no
+			// stray comment and spends no retry.
+			results[i] = declined(a, fmt.Sprintf("not attempted: your token cannot write to %s/%s", a.Org, a.Repo), errNoWrite)
+			continue
+		}
 		results[i] = Apply(ctx, c, a, dryRun)
 	}
 	return results, n, nil
+}
+
+var errNoWrite = errors.New("run gh auth login with a token that has repo access")
+
+// workflowChanged reports whether a 403 on a re-run is GitHub refusing
+// because the workflow's file changed since the run, which only a fresh
+// dispatch can get past.
+func workflowChanged(body string) bool {
+	b := strings.ToLower(body)
+	return strings.Contains(b, "workflow") &&
+		(strings.Contains(b, "changed") || strings.Contains(b, "modified") || strings.Contains(b, "updated"))
 }
 
 func planOrg(ctx context.Context, c ghapi.Client, org string, scripts string, now time.Time) ([]Action, int, error) {
@@ -891,7 +913,10 @@ func applyRerun(ctx context.Context, c ghapi.Client, a Action, dryRun bool) Resu
 	if err := c.Post(ctx, path, nil, nil); err != nil {
 		var he *ghapi.HTTPError
 		if errors.As(err, &he) && he.Status == 403 {
-			return declined(a, noteCutRelease, nil)
+			if workflowChanged(he.Body) {
+				return declined(a, noteCutRelease, nil)
+			}
+			return Result{Action: a, Err: err, Note: "re-run refused by GitHub"}
 		}
 		return Result{Action: a, Err: err, Note: "re-run request failed"}
 	}

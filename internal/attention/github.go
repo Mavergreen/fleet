@@ -25,27 +25,58 @@ func (e *ReadError) Unwrap() error { return e.Err }
 
 func base(org, repo string) string { return "/repos/" + org + "/" + repo }
 
-// Repos lists the org's non-archived repos, sorted.
-func Repos(ctx context.Context, c ghapi.Client, org string) ([]string, error) {
-	var repos []string
+type orgRepo struct {
+	Name        string `json:"name"`
+	Archived    bool   `json:"archived"`
+	Permissions struct {
+		Push bool `json:"push"`
+	} `json:"permissions"`
+}
+
+func listRepos(ctx context.Context, c ghapi.Client, org string) ([]orgRepo, error) {
+	var repos []orgRepo
 	err := c.GetPaged(ctx, "/orgs/"+org+"/repos?type=public&per_page=100", func(raw json.RawMessage) error {
-		var rp struct {
-			Name     string `json:"name"`
-			Archived bool   `json:"archived"`
-		}
+		var rp orgRepo
 		if err := json.Unmarshal(raw, &rp); err != nil {
 			return err
 		}
 		if !rp.Archived {
-			repos = append(repos, rp.Name)
+			repos = append(repos, rp)
 		}
 		return nil
 	})
 	if err != nil {
 		return nil, fmt.Errorf("listing %s repos: %w", org, err)
 	}
+	return repos, nil
+}
+
+// Repos lists the org's non-archived repos, sorted.
+func Repos(ctx context.Context, c ghapi.Client, org string) ([]string, error) {
+	rs, err := listRepos(ctx, c, org)
+	if err != nil {
+		return nil, err
+	}
+	repos := make([]string, len(rs))
+	for i, r := range rs {
+		repos[i] = r.Name
+	}
 	sort.Strings(repos)
 	return repos, nil
+}
+
+// Writable says which of the org's non-archived repos the token can push
+// to, from the same listing as Repos (so a memoized client reads it once).
+func Writable(ctx context.Context, c ghapi.Client, org string) (map[string]bool, error) {
+	rs, err := listRepos(ctx, c, org)
+	if err != nil {
+		return nil, err
+	}
+	w := make(map[string]bool, len(rs))
+	for _, r := range rs {
+		w[r.Name] = r.Permissions.Push
+	}
+	return w, nil
 }
 
 // Pull is an open pull request as the pulls API reports it.
