@@ -1,0 +1,300 @@
+.Dd November 20, 2026
+.Dt MAVERGREEN-FLEET 1
+.Os Mavergreen
+.Sh NAME
+.Nm mavergreen-fleet
+.Nd what needs a human across the Mavergreen family, and retries for transient failures
+.Sh SYNOPSIS
+.Nm
+.Op Fl -json
+.Op Cm attention
+.Nm
+.Cm remediate
+.Op Fl -dry-run
+.Op Fl -json
+.Nm
+.Cm timing
+.Op Fl -since Ar when
+.Op Fl -force
+.Op Fl -json
+.Op Ar repo Op Ar run-id
+.Nm
+.Cm graph
+.Op Fl -dot | Fl -mermaid | Fl -json
+.Op Fl -from-dir Ar dir
+.Nm
+.Fl -version
+.Sh DESCRIPTION
+.Nm
+reads the Mavergreen GitHub organization's public repositories and reports on them.
+It needs a token that can read the organization; see
+.Sx ENVIRONMENT .
+.Pp
+Text output uses colour, and is cut to the terminal's width (or
+.Ev COLUMNS ) ,
+only on a terminal.
+Piped, it is never truncated.
+.Sh COMMANDS
+.Bl -tag -width Ds
+.It Cm attention
+The default.
+Lists what needs a human, most urgent first: stuck pull requests, red workflows,
+issues waiting for a reply, retries in progress, and anything it could not read.
+Each finding ends with what to do about it.
+An empty list still says what was checked.
+.It Cm remediate Op Fl -dry-run
+Retries failures that match a known transient pattern, at most twice each.
+For a Renovate pull request it ticks the rebase/retry checkbox, so Renovate rebuilds the branch.
+For a run on
+.Ql main ,
+or a scheduled run, it re-runs the failed jobs.
+Every other failure is reported, not retried.
+It never merges, cancels or deletes anything.
+.Fl -dry-run
+says what it would do and changes nothing.
+.It Cm timing Op Ar repo Op Ar run-id
+Where Actions time goes.
+With no
+.Ar repo ,
+a table per repo and runner kind (macOS or Linux): queue wait, run time, re-runs and wasted hours.
+With a
+.Ar repo ,
+Gantt bars of queue wait and run time for that repo's latest
+.Pa release.yml
+run, or for
+.Ar run-id .
+.Pp
+Each run not yet cached costs one GitHub API request from the hourly quota every agent shares.
+A fleet-wide run that would leave fewer than 500 requests this hour stops and says so.
+.It Cm graph
+The family's ingredient graph: its edges, diamonds and cycles, plus what it could not read.
+How long a change takes to flow along it is not shown yet.
+.El
+.Sh OPTIONS
+.Bl -tag -width Ds
+.It Fl -json
+Print one JSON object on stdout instead of text; see
+.Sx JSON OUTPUT .
+.It Fl -dry-run
+.Cm remediate
+only: change nothing.
+.It Fl -since Ar when
+.Cm timing
+only: the start of the window, as a date
+.Pq Ql 2026-11-01
+or a duration back from now
+.Pq Ql 7d , Ql 48h .
+Default:
+.Ql 7d .
+.It Fl -force
+.Cm timing
+only: run even when the quota check would stop it.
+.It Fl -dot , Fl -mermaid
+.Cm graph
+only: print the graph in that format.
+.It Fl -from-dir Ar dir
+.Cm graph
+only: read a directory of family checkouts instead of the organization.
+.It Fl -version
+Print
+.Ql mavergreen-fleet VERSION .
+.El
+.Sh JSON OUTPUT
+Every command prints one object, never truncated or coloured.
+Lists are
+.Ql []
+when empty, never
+.Ql null .
+Every object starts with:
+.Bl -tag -width generated
+.It Li schema
+.Ql \(dqfleet/v1\(dq .
+.It Li command
+.Ql attention ,
+.Ql remediate ,
+.Ql timing
+or
+.Ql graph .
+.It Li generated
+When it ran, RFC 3339 in UTC, such as
+.Ql 2026-11-19T12:00:00Z .
+.El
+.Pp
+The command's own fields follow.
+.Ss attention
+.Bl -tag -width findings
+.It Li checked
+.Li {repos, prs, issues, runs} ,
+counts of what was read.
+.It Li findings
+.Li {repo, item, url, kind, since, why, fix} ,
+most urgent first.
+.Li kind
+is
+.Ql cannot-read ,
+.Ql stuck-pr ,
+.Ql red-workflow ,
+.Ql needs-reply
+or
+.Ql retry-in-progress .
+.Li item
+is
+.Ql repo#123
+for a pull request or issue and
+.Ql repo:workflow
+for a workflow; for
+.Ql cannot-read
+it names what could not be read (an API path, or
+.Dq checks for repo#123 ) ,
+and
+.Li why
+carries the error.
+.Li since
+is RFC 3339.
+.El
+.Ss remediate
+.Bl -tag -width actions
+.It Li actions
+.Li {kind, repo, pr, run_id, run_url, pattern, attempt, note, done, dry_run, error} .
+.Li kind
+is
+.Ql tick-box ,
+.Ql rerun
+or
+.Ql report .
+An action declined at the last moment comes back as a
+.Ql report ,
+and so does something that could not be read, with
+.Li error
+saying why.
+.Li pr ,
+.Li run_id ,
+.Li run_url ,
+.Li pattern ,
+.Li attempt
+and
+.Li error
+are left out when they do not apply.
+.Li done
+is true only when the write happened.
+.El
+.Ss timing, with no repo
+.Bl -tag -width unreadable_runs
+.It Li window_start
+The first day counted,
+.Ql YYYY-MM-DD .
+.It Li repos
+One row per repo and runner kind, most total hours first:
+.Li {repo, kind, jobs, wait_h, median_wait_m, p90_wait_m, run_h, never_started, never_started_wait_h, reruns, manual_kicks, wasted_h, total_h} .
+.Li kind
+is
+.Ql macos
+or
+.Ql linux .
+Unfinished jobs are not counted.
+.It Li unreadable_runs
+.Li {<repo>: <runs whose jobs could not be read>} .
+Those runs are left out of
+.Li repos .
+.It Li cannot_read
+One line per thing that could not be read (a repo's run list, a run's jobs).
+.El
+.Ss timing repo Op run-id
+.Bl -tag -width critical_path
+.It Li repo , Li run_id
+.Li run_id
+is absent when the repo has no runs.
+.It Li note
+When there is something to say: no
+.Pa release.yml
+run, so another workflow's; or no runs at all.
+.It Li jobs
+.Li {name, attempt, labels, created, started, completed, wait_s, run_s, never_started, conclusion} ,
+every attempt's jobs.
+.It Li critical_path
+Job names, earliest first.
+.El
+.Pp
+A repo or run that cannot be read is exit 1, not a field.
+.Ss graph
+.Bl -tag -width incomplete
+.It Li edges
+.Li {consumer, ingredient} .
+.It Li diamonds , Li cycles
+The
+.Ql DIAMOND
+and
+.Ql CYCLE
+lines of shipyard's
+.Pa family-graph.sh .
+.It Li incomplete
+Repos it skipped and names it could not map
+.Ql ( SKIP ... ,
+.Ql UNMAPPED ... ) .
+.It Li timings
+Says propagation timings are not yet available.
+.El
+.Sh ENVIRONMENT
+.Bl -tag -width SHIPYARD_SCRIPTS
+.It Ev GH_TOKEN
+The token, when set; otherwise what
+.Ql gh auth token
+prints.
+.It Ev SHIPYARD_SCRIPTS
+Where shipyard's scripts are, for
+.Cm graph
+and for repos' declared deviations.
+Default:
+.Pa /usr/local/mavergreen/shipyard/share/cmake/MavericksShipyard/scripts .
+.It Ev COLUMNS
+The width to cut text to, on a terminal.
+.El
+.Sh EXIT STATUS
+.Bl -tag -width Ds
+.It 0
+It printed its report.
+Something it could not read does not change this; a script must check
+.Cm attention Ns 's
+.Ql cannot-read
+findings,
+.Cm remediate Ns 's
+.Li error ,
+.Cm timing Ns 's
+.Li cannot_read
+and
+.Li unreadable_runs ,
+or
+.Cm graph Ns 's
+.Li incomplete .
+.It 1
+An error.
+Any command: no token; the organization's repos or the token's user could not be read; output could not be written.
+.Cm remediate :
+a write failed, or a read it needed just before writing failed (something unread while planning is a report, exit 0).
+.Cm timing :
+the repo or run asked for cannot be read; the quota check stopped it; or, as text only, it read no runs and something could not be read.
+.Cm graph :
+.Pa family-graph.sh
+exited with anything but 0 or 3 (3 is a partial graph), or the shipyard scripts are missing.
+.It 2
+A usage error: an unknown command or argument, a bad
+.Fl -since
+or run id.
+.El
+.Sh EXAMPLES
+See what needs attention:
+.Dl $ mavergreen-fleet
+.Pp
+See what remediate would retry, then retry it:
+.Dl $ mavergreen-fleet remediate --dry-run
+.Dl $ mavergreen-fleet remediate
+.Pp
+Where ed25519's latest release run spent its time:
+.Dl $ mavergreen-fleet timing ed25519
+.Pp
+Draw the family graph:
+.Dl $ mavergreen-fleet graph --dot | dot -Tsvg > family.svg
+.Sh SEE ALSO
+.Xr gh 1
+.Pp
+.Lk https://github.com/Mavergreen/fleet

@@ -3,7 +3,8 @@
 #   usage: package.sh VERSION DARWIN_BIN OUT [LINUX_BIN]
 #          Writes OUT/fleet-VERSION.pkg and OUT/build-info.txt from DARWIN_BIN (the universal
 #          mavergreen-fleet), and with LINUX_BIN also OUT/fleet-VERSION-linux-x86_64.tar.gz, which holds
-#          opt/mavergreen/fleet/bin/mavergreen-fleet alone. Prints each path it wrote. The pkg's stage
+#          opt/mavergreen/fleet/bin/mavergreen-fleet and opt/mavergreen/fleet/share/man/man1/mavergreen-fleet.1.
+#          Both install man/mavergreen-fleet.1, which the family link farm exports from share/man/man1. Prints each path it wrote. The pkg's stage
 #          stays in OUT/stage for the smoke test (FLEET_ROOT=OUT/stage/root). Needs $SHIPYARD_SCRIPTS
 #          and a git checkout (the pkg's mtime is HEAD's commit time unless SOURCE_DATE_EPOCH is set).
 # spec: shipyard SKILL.md "Install layout and identity" -- one product tree, usr/local/mavergreen/fleet/,
@@ -22,9 +23,11 @@ ID="$(sh "$SHIPYARD/product-name.sh" identifier fleet)"
 
 STAGE="$OUT/stage"
 rm -rf "$STAGE"
-mkdir -p "$STAGE/root/usr/local/mavergreen/fleet/bin" "$STAGE/scripts"
+mkdir -p "$STAGE/root/usr/local/mavergreen/fleet/bin" "$STAGE/root/usr/local/mavergreen/fleet/share/man/man1" "$STAGE/scripts"
 cp "$DARWIN_BIN" "$STAGE/root/usr/local/mavergreen/fleet/bin/mavergreen-fleet"
 chmod 755 "$STAGE/root/usr/local/mavergreen/fleet/bin/mavergreen-fleet"
+cp "$ROOT/man/mavergreen-fleet.1" "$STAGE/root/usr/local/mavergreen/fleet/share/man/man1/"
+chmod 644 "$STAGE/root/usr/local/mavergreen/fleet/share/man/man1/mavergreen-fleet.1"
 
 sh "$SHIPYARD/stage_product.sh" --stage "$STAGE/root" --product fleet \
   --name "Fleet for Mavericks" --version "$VER" --scripts-out "$STAGE/scripts" >&2
@@ -47,9 +50,11 @@ echo "$OUT/build-info.txt"
 if [ -n "$LINUX_BIN" ]; then
   T="$OUT/tarball"
   rm -rf "$T"
-  mkdir -p "$T/opt/mavergreen/fleet/bin"
+  mkdir -p "$T/opt/mavergreen/fleet/bin" "$T/opt/mavergreen/fleet/share/man/man1"
   cp "$LINUX_BIN" "$T/opt/mavergreen/fleet/bin/mavergreen-fleet"
   chmod 755 "$T/opt/mavergreen/fleet/bin/mavergreen-fleet"
+  cp "$ROOT/man/mavergreen-fleet.1" "$T/opt/mavergreen/fleet/share/man/man1/"
+  chmod 644 "$T/opt/mavergreen/fleet/share/man/man1/mavergreen-fleet.1"
   find "$T" -type d -exec chmod 755 {} +
   # platform: BSD date reads the epoch with -r and GNU date with -d @; touch -t takes [[CC]YY]MMDDhhmm[.SS]
   stamp="$(date -u -r "$SOURCE_DATE_EPOCH" +%Y%m%d%H%M.%S 2>/dev/null || date -u -d "@$SOURCE_DATE_EPOCH" +%Y%m%d%H%M.%S)"

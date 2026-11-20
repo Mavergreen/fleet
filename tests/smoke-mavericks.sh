@@ -3,7 +3,7 @@
 #   usage: smoke-mavericks.sh
 #          Runs against the INSTALLED fleet (FLEET_ROOT, default /, is the volume it is installed on):
 #          the manifest's version is FLEET_VERSION_UNDER_TEST (required on a real install, FLEET_ROOT unset), --version reports it,
-#          the family link farm exports the installed binary (checked only on a real install, FLEET_ROOT unset:
+#          the manpage is installed, the family link farm exports the binary and the manpage (checked only on a real install, FLEET_ROOT unset:
 #          the farm's links come from the postinstall), and graph --json, with SHIPYARD_SCRIPTS
 #          at tests/fixtures/scripts, matches tests/fixtures/graph.json once its time-varying
 #          "generated" field is replaced by NORMALISED. Exits 77, a skip, only when fleet is not
@@ -30,9 +30,13 @@ fi
 
 [ "$("$BIN" --version)" = "mavergreen-fleet $installed" ] \
   || { echo "--version printed '$("$BIN" --version)', want 'mavergreen-fleet $installed'" >&2; exit 1; }
+MAN="$T/share/man/man1/mavergreen-fleet.1"
+[ -f "$MAN" ] || { echo "no manpage at $MAN" >&2; exit 1; }
 if [ -z "$ROOT" ]; then
   [ /usr/local/mavergreen/bin/mavergreen-fleet -ef "$BIN" ] \
     || { echo "/usr/local/mavergreen/bin/mavergreen-fleet is not the installed mavergreen-fleet" >&2; exit 1; }
+  [ /usr/local/mavergreen/share/man/man1/mavergreen-fleet.1 -ef "$MAN" ] \
+    || { echo "the link farm does not export the installed manpage" >&2; exit 1; }
 fi
 
 W="$(mktemp -d "${TMPDIR:-/tmp}/fleet-smoke.XXXXXX")"; trap 'rm -rf "$W"' EXIT
