@@ -250,17 +250,30 @@ func (rc *repoCollector) workflows() {
 	}
 	for _, wr := range wrs {
 		rc.res.runs += len(wr.Runs)
-		for _, run := range wr.Runs {
+		for i, run := range wr.Runs {
 			if !run.Failed() {
 				continue
 			}
+			st := wr.Streaks[i]
 			rc.res.findings = append(rc.res.findings, model.Finding{
 				Repo: rc.repo, Item: rc.repo + ":" + wr.Workflow.Name, URL: run.HTMLURL, Kind: model.KindRedWorkflow,
-				Since: run.UpdatedAt,
-				Why:   fmt.Sprintf("latest run %s %s ago", run.Conclusion, age(rc.now.Sub(run.UpdatedAt))),
+				Since: st.Since,
+				Why:   streakWhy(st),
 				Fix:   "open the run, read the failing step",
 			})
 			break
 		}
 	}
+}
+
+// streakWhy says how long a workflow has been red: "red 3 runs in a row, since Nov 15".
+func streakWhy(s Streak) string {
+	since := s.Since.Format("Jan 2")
+	switch {
+	case s.Capped:
+		return fmt.Sprintf("red %d+ runs in a row, since %s", s.Count, since)
+	case s.Count == 1:
+		return "red 1 run, since " + since
+	}
+	return fmt.Sprintf("red %d runs in a row, since %s", s.Count, since)
 }

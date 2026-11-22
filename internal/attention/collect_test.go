@@ -38,8 +38,8 @@ func (f *fake) body(path string) ([]byte, error) {
 	return os.ReadFile("testdata/" + name)
 }
 func (f *fake) Get(_ context.Context, p string, out any) error {
-	if strings.Contains(p, "/runs") && !strings.Contains(p, "per_page=1") {
-		f.flag("Get without per_page=1: " + p)
+	if strings.Contains(p, "/runs") && !strings.Contains(p, "per_page=") {
+		f.flag("Get without per_page: " + p)
 	}
 	b, err := f.body(p)
 	if err != nil {
@@ -128,12 +128,12 @@ func routes() map[string]string {
 	}
 	site := "/repos/Mavergreen/mavergreen-site/actions/workflows/"
 	for _, id := range []string{"1", "2", "3"} {
-		m[site+id+"/runs?branch=main&per_page=1"] = "empty-runs.json"
-		m[site+id+"/runs?event=schedule&per_page=1"] = "empty-runs.json"
+		m[site+id+"/runs?branch=main&per_page=30"] = "empty-runs.json"
+		m[site+id+"/runs?event=schedule&per_page=30"] = "empty-runs.json"
 	}
-	m[site+"1/runs?event=schedule&per_page=1"] = "wf1-schedule-runs.json"
-	m[site+"2/runs?event=schedule&per_page=1"] = "wf2-schedule-runs.json"
-	m[site+"3/runs?branch=main&per_page=1"] = "wf3-main-runs.json"
+	m[site+"1/runs?event=schedule&per_page=30"] = "wf1-schedule-runs.json"
+	m[site+"2/runs?event=schedule&per_page=30"] = "wf2-schedule-runs.json"
+	m[site+"3/runs?branch=main&per_page=30"] = "wf3-main-runs.json"
 	return m
 }
 
@@ -369,5 +369,45 @@ func TestRetryableAskedOnlyWhenItMatters(t *testing.T) {
 	collectWith(t, s, routes())
 	if s.asked != 1 { // rust#43 is red 16d; rust#44 is green
 		t.Fatalf("asked %d times", s.asked)
+	}
+}
+
+func redOne(t *testing.T, r map[string]string) model.Finding {
+	t.Helper()
+	fs, _ := collect(t, r)
+	got := byKind(fs, model.KindRedWorkflow)
+	if len(got) != 1 {
+		t.Fatalf("red-workflow: %+v", got)
+	}
+	return got[0]
+}
+
+const wf1Sched = "/repos/Mavergreen/mavergreen-site/actions/workflows/1/runs?event=schedule&per_page=30"
+
+func TestRedWorkflowStreak(t *testing.T) {
+	r := routes()
+	r[wf1Sched] = "wf1-schedule-streak.json"
+	f := redOne(t, r)
+	if !strings.HasPrefix(f.Why, "red 3 runs in a row, since Nov 15") {
+		t.Fatalf("why %q", f.Why)
+	}
+	if want := time.Date(2026, 11, 15, 3, 10, 0, 0, time.UTC); !f.Since.Equal(want) {
+		t.Fatalf("since %v", f.Since)
+	}
+}
+
+func TestRedWorkflowStreakStopsAtCancelled(t *testing.T) {
+	r := routes()
+	r[wf1Sched] = "wf1-schedule-cancelled.json"
+	if f := redOne(t, r); !strings.HasPrefix(f.Why, "red 1 run, since Nov 18") {
+		t.Fatalf("why %q", f.Why)
+	}
+}
+
+func TestRedWorkflowStreakCapped(t *testing.T) {
+	r := routes()
+	r[wf1Sched] = "wf1-schedule-30.json"
+	if f := redOne(t, r); !strings.HasPrefix(f.Why, "red 30+ runs in a row, since Nov 3") {
+		t.Fatalf("why %q", f.Why)
 	}
 }

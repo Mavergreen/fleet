@@ -282,6 +282,34 @@ type Workflow struct {
 type WorkflowRuns struct {
 	Workflow Workflow
 	Runs     []Run
+	// Streaks is index-aligned with Runs: how long each kept run's query has
+	// been failing. A run that did not fail has the zero Streak.
+	Streaks []Streak
+}
+
+// runsPerQuery runs are read per query, newest first: enough for a streak, at
+// the cost of one request, the same as reading only the newest.
+const runsPerQuery = 30
+
+// Streak counts consecutive failed runs, newest first. Capped means every run
+// read failed, so the true count is at least Count. Since is when the oldest
+// of them finished.
+type Streak struct {
+	Count  int
+	Capped bool
+	Since  time.Time
+}
+
+func streakOf(runs []Run) Streak {
+	var s Streak
+	for _, r := range runs {
+		if !r.Failed() {
+			return s
+		}
+		s.Count, s.Since = s.Count+1, r.UpdatedAt
+	}
+	s.Capped = len(runs) >= runsPerQuery
+	return s
 }
 
 // LatestRuns returns, for each active workflow (sorted by ID), its newest run
@@ -311,7 +339,7 @@ func LatestRuns(ctx context.Context, c ghapi.Client, org, repo string) (wrs []Wo
 	for _, w := range active {
 		wr := WorkflowRuns{Workflow: w}
 		for _, q := range []string{"branch=main", "event=schedule"} {
-			path := fmt.Sprintf("%s/actions/workflows/%d/runs?%s&per_page=1", base(org, repo), w.ID, q)
+			path := fmt.Sprintf("%s/actions/workflows/%d/runs?%s&per_page=%d", base(org, repo), w.ID, q, runsPerQuery)
 			var resp struct {
 				Runs []Run `json:"workflow_runs"`
 			}
@@ -328,6 +356,7 @@ func LatestRuns(ctx context.Context, c ghapi.Client, org, repo string) (wrs []Wo
 			}
 			if !dup {
 				wr.Runs = append(wr.Runs, resp.Runs[0])
+				wr.Streaks = append(wr.Streaks, streakOf(resp.Runs))
 			}
 		}
 		wrs = append(wrs, wr)

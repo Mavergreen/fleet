@@ -307,8 +307,8 @@ func addMainRun(f *remFake, r runSpec) map[string]any {
 	l, _ := wf["workflows"].([]any)
 	f.routes["/repos/o/r/actions/workflows"] = map[string]any{"workflows": append(l,
 		map[string]any{"id": r.wid, "name": "CI", "state": "active"})}
-	f.routes[fmt.Sprintf("/repos/o/r/actions/workflows/%d/runs?branch=main&per_page=1", r.wid)] = map[string]any{"workflow_runs": []any{rj}}
-	f.routes[fmt.Sprintf("/repos/o/r/actions/workflows/%d/runs?event=schedule&per_page=1", r.wid)] = map[string]any{"workflow_runs": []any{}}
+	f.routes[fmt.Sprintf("/repos/o/r/actions/workflows/%d/runs?branch=main&per_page=30", r.wid)] = map[string]any{"workflow_runs": []any{rj}}
+	f.routes[fmt.Sprintf("/repos/o/r/actions/workflows/%d/runs?event=schedule&per_page=30", r.wid)] = map[string]any{"workflow_runs": []any{}}
 	return rj
 }
 
