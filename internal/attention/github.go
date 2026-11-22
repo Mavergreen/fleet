@@ -369,13 +369,18 @@ func LatestRuns(ctx context.Context, c ghapi.Client, org, repo string) (wrs []Wo
 var genericExit = regexp.MustCompile(`^Process completed with exit code \d+\.?$`)
 
 // FailingStep names a failed run's first failed job and step, and the first
-// failure annotation on that job that says more than its exit code (first line
+// failure annotation on that job that says more than its exit code (first non-blank line
 // only). job is "" when no step failed. A jobs read error comes back as err; an
 // annotations read error comes back as err with job and step filled in.
 func FailingStep(ctx context.Context, c ghapi.Client, org, repo string, runID int64) (job, step, msg string, err error) {
 	jpath := fmt.Sprintf("%s/actions/runs/%d/jobs?per_page=100", base(org, repo), runID)
-	var jobs struct {
-		Jobs []struct {
+	// Paged: a big matrix run's failing job can be past the first 100.
+	var jobID int64
+	err = c.GetPaged(ctx, jpath, func(raw json.RawMessage) error {
+		if job != "" {
+			return nil
+		}
+		var j struct {
 			ID         int64  `json:"id"`
 			Name       string `json:"name"`
 			Conclusion string `json:"conclusion"`
@@ -383,25 +388,25 @@ func FailingStep(ctx context.Context, c ghapi.Client, org, repo string, runID in
 				Name       string `json:"name"`
 				Conclusion string `json:"conclusion"`
 			} `json:"steps"`
-		} `json:"jobs"`
-	}
-	if err := c.Get(ctx, jpath, &jobs); err != nil {
-		return "", "", "", &ReadError{jpath, err}
-	}
-	var jobID int64
-	for _, j := range jobs.Jobs {
-		if j.Conclusion != "failure" {
-			continue
+		}
+		if err := json.Unmarshal(raw, &j); err != nil {
+			return err
+		}
+		if j.Conclusion != "failure" && j.Conclusion != "timed_out" {
+			return nil
 		}
 		for _, st := range j.Steps {
-			if st.Conclusion == "failure" {
+			// A timed-out job's running step is marked cancelled.
+			if st.Conclusion == "failure" || st.Conclusion == "timed_out" ||
+				(j.Conclusion == "timed_out" && st.Conclusion == "cancelled") {
 				job, step, jobID = j.Name, st.Name, j.ID
-				break
+				return nil
 			}
 		}
-		if job != "" {
-			break
-		}
+		return nil
+	})
+	if err != nil {
+		return "", "", "", &ReadError{jpath, err}
 	}
 	if job == "" {
 		return "", "", "", nil
@@ -415,10 +420,20 @@ func FailingStep(ctx context.Context, c ghapi.Client, org, repo string, runID in
 		return job, step, "", &ReadError{apath, err}
 	}
 	for _, a := range anns {
-		line := strings.TrimSpace(strings.SplitN(a.Message, "\n", 2)[0])
+		line := firstLine(a.Message)
 		if a.Level == "failure" && line != "" && !genericExit.MatchString(line) {
 			return job, step, line, nil
 		}
 	}
 	return job, step, "", nil
+}
+
+// firstLine is msg's first non-blank line, trimmed.
+func firstLine(msg string) string {
+	for _, l := range strings.Split(msg, "\n") {
+		if l = strings.TrimSpace(l); l != "" {
+			return l
+		}
+	}
+	return ""
 }

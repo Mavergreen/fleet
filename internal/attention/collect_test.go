@@ -67,7 +67,7 @@ func items(b []byte) ([]json.RawMessage, error) {
 }
 
 func (f *fake) GetPaged(_ context.Context, p string, each func(json.RawMessage) error) error {
-	if strings.Contains(p, "/runs") {
+	if strings.Contains(p, "/runs?") {
 		f.flag("GetPaged on runs: " + p)
 	}
 	var bodies [][]byte
@@ -483,5 +483,35 @@ func TestRedWorkflowAnnotationsUnreadable(t *testing.T) {
 	}
 	if !unreadNaming(fs, "/check-runs/501/annotations") {
 		t.Fatalf("no cannot-read for annotations: %+v", byKind(fs, model.KindCannotRead))
+	}
+}
+
+func TestRedWorkflowTimedOutJob(t *testing.T) {
+	r := routes()
+	r[run11Jobs] = "run11-jobs-timedout.json"
+	if f := redOne(t, r); f.Fix != "reconcile › Derive upstream version: no src dir" {
+		t.Fatalf("fix %q", f.Fix)
+	}
+}
+
+func TestRedWorkflowFailingJobOnSecondPage(t *testing.T) {
+	r := routes()
+	delete(r, run11Jobs)
+	fk := &fake{routes: r, pages: map[string][]string{run11Jobs: {"run11-jobs-p1.json", "run11-jobs-p2.json"}}}
+	fs, _, err := Collect(context.Background(), fk, "Mavergreen", "", NoRetry{}, cnow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := byKind(fs, model.KindRedWorkflow)
+	if len(got) != 1 || got[0].Fix != "reconcile › Derive upstream version: no src dir" {
+		t.Fatalf("red: %+v", got)
+	}
+}
+
+func TestRedWorkflowAnnotationBlankFirstLine(t *testing.T) {
+	r := routes()
+	r[ann501] = "ann501-blankfirst.json"
+	if f := redOne(t, r); f.Fix != "reconcile › Derive upstream version: real error" {
+		t.Fatalf("fix %q", f.Fix)
 	}
 }
