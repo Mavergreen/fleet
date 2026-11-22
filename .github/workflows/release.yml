@@ -38,8 +38,23 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Install mavericks-shipyard
+      - name: Read the golang-127 pin
+        id: pins
+        run: echo "golang=$(tr -d '[:space:]' < components/golang/version)" >> "$GITHUB_OUTPUT"
+
+      # spec: shipyard .github/actions/install/action.yml `products` -- installs go127-cross at the pin and, first, what it requires
+      #       (longboat, then sdk109 for the external darwin link), as `mavergreen install` will
+      - name: Install mavericks-shipyard and the golang-127 cross toolchain
         uses: Mavergreen/shipyard/.github/actions/install@v1
+        with:
+          products: go127-cross@${{ steps.pins.outputs.golang }}
+
+      - name: Point the build at the cross toolchain
+        env:
+          GOLANG: ${{ steps.pins.outputs.golang }}
+        run: |
+          line="$(printf '%s' "$GOLANG" | cut -d. -f1,2 | tr -d .)"
+          echo "GO_DARWIN=/usr/local/mavergreen/go${line}-cross/bin/go" >> "$GITHUB_ENV"
 
       - name: Build out of tree
         run: |
@@ -75,23 +90,6 @@ jobs:
           fi
           { echo "ver=$ver"; echo "publish=$pub"; } >> "$GITHUB_OUTPUT"
           echo "version=$ver publish=$pub"
-
-      - name: Install the golang-127 cross toolchain
-        run: |
-          set -eu
-          . "$SHIPYARD_SCRIPTS/mavericks_fetch.sh"
-          ver="$(tr -d '[:space:]' < components/golang/version)"
-          gover="${ver%%-mavericks.*}"; rev="${ver#*-}"
-          line="$(printf '%s' "$gover" | cut -d. -f1,2 | tr -d .)"
-          base="https://github.com/Mavergreen/golang-${line}/releases/download/${ver}"
-          sums="$RUNNER_TEMP/SHA256SUMS"
-          shipyard_curl "$base/SHA256SUMS" "$sums"
-          cand="golang-${gover}-cross-${rev}.pkg"
-          hash="$(awk -v f="$cand" '$2==f {print $1}' "$sums")"
-          [ -n "$hash" ] || { echo "::error::no $cand in golang-${line} ${ver} SHA256SUMS"; exit 1; }
-          shipyard_fetch_verified "$base/$cand" "$hash" "$RUNNER_TEMP" "$cand"
-          sudo installer -pkg "$RUNNER_TEMP/$cand" -target /
-          echo "GO_DARWIN=/usr/local/mavergreen/go${line}-cross/bin/go" >> "$GITHUB_ENV"
 
       - name: Fetch clang22, for lipo and the Mach-O readers
         run: |
