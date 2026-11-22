@@ -42,6 +42,8 @@ Piped, it is never truncated.
 Lists what needs a human, most urgent first: stuck pull requests, red workflows,
 issues waiting for a reply, retries in progress, and anything it could not read.
 Each finding ends with what to do about it.
+A red workflow says how many runs in a row have failed and since when,
+and names the failing job and step, with the step's error when GitHub recorded one.
 An empty list still says what was checked.
 .It Cm remediate Op Fl -dry-run
 Retries failures that match a known transient pattern, at most twice each.
@@ -163,7 +165,9 @@ and
 .Li why
 carries the error.
 .Li since
-is RFC 3339.
+is RFC 3339; for
+.Ql red-workflow
+it is when the oldest failure in the current streak finished.
 .El
 .Ss remediate
 .Bl -tag -width actions

@@ -134,6 +134,8 @@ func routes() map[string]string {
 	m[site+"1/runs?event=schedule&per_page=30"] = "wf1-schedule-runs.json"
 	m[site+"2/runs?event=schedule&per_page=30"] = "wf2-schedule-runs.json"
 	m[site+"3/runs?branch=main&per_page=30"] = "wf3-main-runs.json"
+	m[run11Jobs] = "run11-jobs.json"
+	m[ann501] = "ann501.json"
 	return m
 }
 
@@ -409,5 +411,77 @@ func TestRedWorkflowStreakCapped(t *testing.T) {
 	r[wf1Sched] = "wf1-schedule-30.json"
 	if f := redOne(t, r); !strings.HasPrefix(f.Why, "red 30+ runs in a row, since Nov 3") {
 		t.Fatalf("why %q", f.Why)
+	}
+}
+
+const (
+	run11Jobs = "/repos/Mavergreen/mavergreen-site/actions/runs/11/jobs?per_page=100"
+	ann501    = "/repos/Mavergreen/mavergreen-site/check-runs/501/annotations"
+)
+
+func unreadNaming(fs []model.Finding, path string) bool {
+	for _, f := range byKind(fs, model.KindCannotRead) {
+		if strings.Contains(f.Item, path) || strings.Contains(f.Why, path) {
+			return true
+		}
+	}
+	return false
+}
+
+func TestRedWorkflowNamesFailingStep(t *testing.T) {
+	if f := redOne(t, routes()); f.Fix != "reconcile › Derive upstream version: no src dir" {
+		t.Fatalf("fix %q", f.Fix)
+	}
+}
+
+func TestRedWorkflowStepWithoutAnnotation(t *testing.T) {
+	r := routes()
+	r[ann501] = "ann501-generic.json"
+	if f := redOne(t, r); f.Fix != "reconcile › Derive upstream version" {
+		t.Fatalf("fix %q", f.Fix)
+	}
+}
+
+func TestRedWorkflowAnnotationFirstLine(t *testing.T) {
+	r := routes()
+	r[ann501] = "ann501-multiline.json"
+	if f := redOne(t, r); f.Fix != "reconcile › Derive upstream version: a" {
+		t.Fatalf("fix %q", f.Fix)
+	}
+}
+
+func TestRedWorkflowNoFailedStep(t *testing.T) {
+	r := routes()
+	r[run11Jobs] = "run11-jobs-empty.json"
+	fs, _ := collect(t, r)
+	if f := byKind(fs, model.KindRedWorkflow); len(f) != 1 || f[0].Fix != "open the run, read the failing step" {
+		t.Fatalf("red: %+v", f)
+	}
+	if unreadNaming(fs, "jobs") {
+		t.Fatal("no failed step is not an unread")
+	}
+}
+
+func TestRedWorkflowJobsUnreadable(t *testing.T) {
+	r := routes()
+	r[run11Jobs] = "ERR500"
+	fs, _ := collect(t, r)
+	if f := byKind(fs, model.KindRedWorkflow); len(f) != 1 || f[0].Fix != "open the run, read the failing step" {
+		t.Fatalf("red: %+v", f)
+	}
+	if !unreadNaming(fs, "/actions/runs/11/jobs") {
+		t.Fatalf("no cannot-read for jobs: %+v", byKind(fs, model.KindCannotRead))
+	}
+}
+
+func TestRedWorkflowAnnotationsUnreadable(t *testing.T) {
+	r := routes()
+	r[ann501] = "ERR500"
+	fs, _ := collect(t, r)
+	if f := byKind(fs, model.KindRedWorkflow); len(f) != 1 || f[0].Fix != "reconcile › Derive upstream version" {
+		t.Fatalf("red: %+v", f)
+	}
+	if !unreadNaming(fs, "/check-runs/501/annotations") {
+		t.Fatalf("no cannot-read for annotations: %+v", byKind(fs, model.KindCannotRead))
 	}
 }

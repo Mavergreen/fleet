@@ -63,7 +63,8 @@ func attentionOrg(t *testing.T) *remFake {
 }
 
 // attention reads each endpoint once, sharing reads with remediate's
-// planning, and fetches no logs: nothing it reports needs one here.
+// planning (a red run's jobs included), and fetches no logs: nothing it
+// reports needs one here.
 func TestAttentionReadsOnceAndFetchesNoLogs(t *testing.T) {
 	net := count(attentionOrg(t))
 	m := ghapi.NewMemo(net)
@@ -72,8 +73,7 @@ func TestAttentionReadsOnceAndFetchesNoLogs(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, r := range net.reads() {
-		if strings.HasPrefix(r, "RAW ") || strings.Contains(r, "/logs") || strings.Contains(r, "/annotations") ||
-			strings.Contains(r, "/jobs") || !strings.HasSuffix(r, " xI") {
+		if strings.HasPrefix(r, "RAW ") || strings.Contains(r, "/logs") || !strings.HasSuffix(r, " xI") {
 			t.Errorf("%s", r)
 		}
 	}

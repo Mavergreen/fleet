@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/Mavergreen/fleet/internal/ghapi"
@@ -362,4 +364,61 @@ func LatestRuns(ctx context.Context, c ghapi.Client, org, repo string) (wrs []Wo
 		wrs = append(wrs, wr)
 	}
 	return wrs, unread, nil
+}
+
+var genericExit = regexp.MustCompile(`^Process completed with exit code \d+\.?$`)
+
+// FailingStep names a failed run's first failed job and step, and the first
+// failure annotation on that job that says more than its exit code (first line
+// only). job is "" when no step failed. A jobs read error comes back as err; an
+// annotations read error comes back as err with job and step filled in.
+func FailingStep(ctx context.Context, c ghapi.Client, org, repo string, runID int64) (job, step, msg string, err error) {
+	jpath := fmt.Sprintf("%s/actions/runs/%d/jobs?per_page=100", base(org, repo), runID)
+	var jobs struct {
+		Jobs []struct {
+			ID         int64  `json:"id"`
+			Name       string `json:"name"`
+			Conclusion string `json:"conclusion"`
+			Steps      []struct {
+				Name       string `json:"name"`
+				Conclusion string `json:"conclusion"`
+			} `json:"steps"`
+		} `json:"jobs"`
+	}
+	if err := c.Get(ctx, jpath, &jobs); err != nil {
+		return "", "", "", &ReadError{jpath, err}
+	}
+	var jobID int64
+	for _, j := range jobs.Jobs {
+		if j.Conclusion != "failure" {
+			continue
+		}
+		for _, st := range j.Steps {
+			if st.Conclusion == "failure" {
+				job, step, jobID = j.Name, st.Name, j.ID
+				break
+			}
+		}
+		if job != "" {
+			break
+		}
+	}
+	if job == "" {
+		return "", "", "", nil
+	}
+	apath := fmt.Sprintf("%s/check-runs/%d/annotations", base(org, repo), jobID)
+	var anns []struct {
+		Level   string `json:"annotation_level"`
+		Message string `json:"message"`
+	}
+	if err := c.Get(ctx, apath, &anns); err != nil {
+		return job, step, "", &ReadError{apath, err}
+	}
+	for _, a := range anns {
+		line := strings.TrimSpace(strings.SplitN(a.Message, "\n", 2)[0])
+		if a.Level == "failure" && line != "" && !genericExit.MatchString(line) {
+			return job, step, line, nil
+		}
+	}
+	return job, step, "", nil
 }

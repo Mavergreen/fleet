@@ -259,7 +259,7 @@ func (rc *repoCollector) workflows() {
 				Repo: rc.repo, Item: rc.repo + ":" + wr.Workflow.Name, URL: run.HTMLURL, Kind: model.KindRedWorkflow,
 				Since: st.Since,
 				Why:   streakWhy(st),
-				Fix:   "open the run, read the failing step",
+				Fix:   rc.failingStep(run.ID),
 			})
 			break
 		}
@@ -276,4 +276,19 @@ func streakWhy(s Streak) string {
 		return "red 1 run, since " + since
 	}
 	return fmt.Sprintf("red %d runs in a row, since %s", s.Count, since)
+}
+
+// failingStep is a red run's Fix: "job › step: error", as much of it as can be read.
+func (rc *repoCollector) failingStep(runID int64) string {
+	job, step, msg, err := FailingStep(rc.ctx, rc.c, rc.org, rc.repo, runID)
+	if err != nil {
+		rc.unreadErr(fmt.Sprintf("jobs for %s run %d", rc.repo, runID), err)
+	}
+	switch {
+	case job == "":
+		return "open the run, read the failing step"
+	case msg == "":
+		return job + " › " + step
+	}
+	return job + " › " + step + ": " + msg
 }

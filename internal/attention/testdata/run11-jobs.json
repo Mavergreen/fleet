@@ -1,0 +1,1 @@
+{"total_count": 2, "jobs": [{"id": 500, "name": "setup", "conclusion": "success", "steps": [{"name": "checkout", "conclusion": "success"}]}, {"id": 501, "name": "reconcile", "conclusion": "failure", "steps": [{"name": "checkout", "conclusion": "success"}, {"name": "Derive upstream version", "conclusion": "failure"}, {"name": "Open PR", "conclusion": "skipped"}]}]}
