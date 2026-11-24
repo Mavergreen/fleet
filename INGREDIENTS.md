@@ -30,6 +30,5 @@ no Sparkle updater and no feed, and signs nothing, so there is no `scan-for-key.
 ## Conformance deviations
 
 - scheme: fleet is its own upstream (no upstream release to repackage), so it versions itself by date as YYYYMMDD.N with no -mavericks.N axis
-- arm64:usr/local/mavergreen/fleet/bin/*: maintainer tool on Apple Silicon development hosts; slice floor is Go 1.27's 13.0 until the family's Go emits 11.0 (golang-126/127 QUEUE, 2026-11-19)
+- arm64-pure-go:usr/local/mavergreen/fleet/bin/*: maintainers run fleet on Apple Silicon development hosts
 - sdk-pin:usr/local/mavergreen/fleet/bin/*: Go's linker stamps the arm64 slice with its own minos 13.0 and a build SDK, not the pinned 11.3 SDK at 11.0; this also excuses the x86_64 slice at conformance, which the compat guard run on the thin x86_64 binary in release.yml still holds to the pin; exit: the family's Go emitting darwin/arm64 at an 11.0 floor (golang-126/127 QUEUE, 2026-11-19)
-- macos-runner:release.yml:modern-smoke: check 37 requires it

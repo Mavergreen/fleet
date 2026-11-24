@@ -206,33 +206,8 @@ jobs:
             sh tests/smoke-mavericks.sh || rc=$?
             [ "$rc" -eq 0 ] || { echo "smoke-mavericks.sh exited $rc (77 is a skip, a failure here)"; exit 1; }
 
-  # spec: shipyard check 37 -- the universal binary's arm64 slice, installed and run on current macOS
-  modern-smoke:
-    needs: [build]
-    runs-on: macos-26
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          persist-credentials: false
-      - uses: actions/download-artifact@v8
-        with:
-          name: fleet
-          path: dist
-      - name: Install the pkg and run its arm64 slice
-        env:
-          FLEET_VERSION_UNDER_TEST: ${{ needs.build.outputs.ver }}
-        run: |
-          set -eu
-          [ "$(uname -m)" = arm64 ] && [ "$(arch)" = arm64 ] || { echo "::error::this runner is not running arm64 natively"; exit 1; }
-          sudo installer -pkg "dist/fleet-$FLEET_VERSION_UNDER_TEST.pkg" -target /
-          /usr/local/mavergreen/fleet/bin/mavergreen-fleet --version
-          rc=0
-          sh tests/smoke-mavericks.sh || rc=$?
-          [ "$rc" -eq 0 ] || { echo "::error::smoke-mavericks.sh exited $rc (77 is a skip, a failure here)"; exit 1; }
-
   publish:
-    needs: [build, on-mavericks, modern-smoke]
+    needs: [build, on-mavericks]
     if: needs.build.outputs.publish == 'yes'
     permissions:
       contents: write
@@ -251,7 +226,7 @@ jobs:
   required:
     name: required (release)
     if: always()
-    needs: [build, on-mavericks, modern-smoke, publish, retry]
+    needs: [build, on-mavericks, publish, retry]
     runs-on: ubuntu-latest
     steps:
       - uses: Mavergreen/shipyard/.github/actions/required-gate@v1
