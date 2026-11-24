@@ -1,8 +1,8 @@
 #!/bin/sh
 # platform: host-agnostic
 #   usage: package.sh VERSION DARWIN_BIN OUT [LINUX_BIN]
-#          Writes OUT/fleet-VERSION.pkg and OUT/build-info.txt from DARWIN_BIN (the universal
-#          mavergreen-fleet), and with LINUX_BIN also OUT/fleet-VERSION-linux-x86_64.tar.gz, which holds
+#          Writes OUT/fleet-VERSION.pkg, OUT/fleet-VERSION-macos-universal.tar.gz (the pkg's tree, standalone)
+#          and OUT/build-info.txt from DARWIN_BIN (the universal mavergreen-fleet), and with LINUX_BIN also OUT/fleet-VERSION-linux-x86_64.tar.gz, which holds
 #          opt/mavergreen/fleet/bin/mavergreen-fleet and opt/mavergreen/fleet/share/man/man1/mavergreen-fleet.1.
 #          Both install man/mavergreen-fleet.1, which the family link farm exports from share/man/man1. Prints each path it wrote. The pkg's stage
 #          stays in OUT/stage for the smoke test (FLEET_ROOT=OUT/stage/root). Needs $SHIPYARD_SCRIPTS
@@ -41,6 +41,11 @@ rm -f "$OUT/fleet-$VER.pkg"
 sh "$SHIPYARD/set_install_floor.sh" --identifier "$ID" --title "Fleet for Mavericks $VER" \
   --component "$STAGE/component.pkg" --out "$OUT/fleet-$VER.pkg" --min-os 10.9.5 --require-scripts >&2
 echo "$OUT/fleet-$VER.pkg"
+
+# spec: shipyard scripts/stage_standalone.sh -- the standalone macOS archive, derived from the pkg's staged tree
+rm -f "$OUT/fleet-$VER-macos-universal.tar.gz"
+sh "$SHIPYARD/stage_standalone.sh" "$STAGE/root" fleet "$VER" universal "$OUT/fleet-$VER-macos-universal.tar.gz" >&2
+echo "$OUT/fleet-$VER-macos-universal.tar.gz"
 
 set -- "pkg=fleet-$VER.pkg" "identifier=$ID" "golang=$(tr -d '[:space:]' < "$ROOT/components/golang/version")" \
   "go-upstream=$(tr -d '[:space:]' < "$ROOT/components/go-upstream/version")"
