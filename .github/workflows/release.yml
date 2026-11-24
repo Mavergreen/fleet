@@ -27,7 +27,7 @@ concurrency:
 
 jobs:
   build:
-    runs-on: macos-26
+    runs-on: ubuntu-latest
     timeout-minutes: 60
     outputs:
       ver: ${{ steps.ver.outputs.ver }}
@@ -101,7 +101,7 @@ jobs:
       - name: Fetch upstream Go
         run: |
           set -eu
-          go="$(sh build/fetch-go.sh "$(tr -d '[:space:]' < components/go-upstream/version)" darwin-arm64 "$RUNNER_TEMP/go-upstream")"
+          go="$(sh build/fetch-go.sh "$(tr -d '[:space:]' < components/go-upstream/version)" linux-amd64 "$RUNNER_TEMP/go-upstream")"
           echo "GO_UPSTREAM=$go" >> "$GITHUB_ENV"
 
       - name: Vet and test with upstream Go
